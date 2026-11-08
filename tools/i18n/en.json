@@ -788,5 +788,20 @@
  "log(f\"Handeinstellung {jetzt} -> Pause {PAUSE:.0f} s\")": "log(f\"Manual setting {jetzt} -> pause {PAUSE:.0f} s\")",
  "neu = jetzt + max(-120, min(120, z - jetzt))       # sanfte Schritte": "neu = jetzt + max(-120, min(120, z - jetzt))       # gentle steps",
  "Controller per /dev/mem ohne Interrupt angesprochen (tools/i2c_poll.py, installiert als nura_i2c.py).": "controller is driven via /dev/mem without interrupts (tools/i2c_poll.py, installed as nura_i2c.py).",
- "from nura_i2c import Bus                 # = tools/i2c_poll.py, installiert als nura_i2c.py": "from nura_i2c import Bus                 # = tools/i2c_poll.py, installed as nura_i2c.py"
+ "from nura_i2c import Bus                 # = tools/i2c_poll.py, installiert als nura_i2c.py": "from nura_i2c import Bus                 # = tools/i2c_poll.py, installed as nura_i2c.py",
+ "# Bluetooth-Kopplungs-Agent auf dem iPhone (als user) für N Sekunden: sichtbar + koppelbar,": "# Bluetooth pairing agent on the iPhone (as user) for N seconds: discoverable + pairable,",
+ "# bestätigt Kopplungsanfragen automatisch mit \"yes\" (nur für eigene Geräte verwenden!).": "# confirms pairing requests automatically with \"yes\" (use only with your own devices!).",
+ "# Aufruf: bt_agent.sh [sekunden]": "# Usage: bt_agent.sh [seconds]",
+ "# Bluetooth-Audio-Test (auf dem iPhone, als user): mit gekoppeltem Gerät verbinden, A2DP-Sink suchen,": "# Bluetooth audio test (on the iPhone, as user): connect to a paired device, find the A2DP sink,",
+ "# 2 s Testton (440 Hz) abspielen. Aufruf: bt_audio_test.sh <MAC>": "# play a 2 s test tone (440 Hz). Usage: bt_audio_test.sh <MAC>",
+ "[ -n \"$MAC\" ] || { echo \"Aufruf: $0 <MAC>\"; exit 1; }": "[ -n \"$MAC\" ] || { echo \"Usage: $0 <MAC>\"; exit 1; }",
+ "echo \"Bluetooth-Sink: ${SINK:-keiner}\"": "echo \"Bluetooth sink: ${SINK:-none}\"",
+ "paplay -d \"$SINK\" /tmp/ton440.wav && echo \"Testton gespielt\"": "paplay -d \"$SINK\" /tmp/ton440.wav && echo \"Test tone played\"",
+ "# Bluetooth-Gerät suchen, koppeln, vertrauen, verbinden (auf dem iPhone, als user).": "# Find, pair, trust and connect a Bluetooth device (on the iPhone, as user).",
+ "# Aufruf: bt_pair.sh <MAC> [Suchdauer s]   – das Gerät muss sichtbar bzw. im Kopplungsmodus sein.": "# Usage: bt_pair.sh <MAC> [scan time s]   – the device must be discoverable / in pairing mode.",
+ "[ -n \"$MAC\" ] || { echo \"Aufruf: $0 <MAC> [sekunden]\"; exit 1; }": "[ -n \"$MAC\" ] || { echo \"Usage: $0 <MAC> [seconds]\"; exit 1; }",
+ "echo \"-- Suche ${T} s …\"": "echo \"-- Scanning ${T} s …\"",
+ "bluetoothctl devices | grep -i \"$MAC\" || echo \"(nicht gefunden – trotzdem Kopplung versuchen)\"": "bluetoothctl devices | grep -i \"$MAC\" || echo \"(not found – trying to pair anyway)\"",
+ "echo \"-- Koppeln\"": "echo \"-- Pairing\"",
+ "echo \"-- Verbinden\"": "echo \"-- Connecting\""
 }

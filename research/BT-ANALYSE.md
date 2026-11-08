@@ -14,3 +14,11 @@
 - m1n1: Patch 0002 sucht /arm-io/uartN/bluetooth (für brcm,taurus-cal-blob).
 - Offen: btbcm kennt die Subversion des 4355C0 nicht → Firmware heißt BCM.hcd (+BCM4355C0.hcd);
   nach dem ersten Lauf Subversion aus dmesg ablesen und ggf. in btbcm-Tabelle eintragen.
+
+## Stand 2026-11-08: Koppeln + Audio funktionieren
+- Scan, Koppeln (Numeric Comparison, beide Seiten bestätigen) und Verbinden mit dem Laptop T490s: ok.
+- Audio-Server auf dem iPhone ist PulseAudio 17 (module-bluez5-discover); PipeWire läuft ohne BlueZ-SPA mit.
+- A2DP-Ausgabe: `bluez_sink.<MAC>.a2dp_sink` entsteht beim Verbinden, Testton kam am Laptop an
+  → erster funktionierender Tonausgang (interner Lautsprecher noch nicht, siehe AUDIO-ANALYSE.md).
+- Werkzeuge: tools/bt_pair.sh (vom iPhone aus koppeln), tools/bt_agent.sh (iPhone sichtbar +
+  automatisch bestätigen, nur eigene Geräte), tools/bt_audio_test.sh (verbinden + Testton).
