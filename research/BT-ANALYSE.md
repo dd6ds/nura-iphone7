@@ -25,3 +25,6 @@
 - r118 (Kernel #119): CONFIG_BT_RFCOMM/BNEP/HIDP + UHID. Vorher scheiterte das Verbinden mit Kopfhörern
   ("socket(STREAM, RFCOMM): Protocol not supported" → BlueZ trennt). Jetzt: soundcore Space Q45 verbindet
   normal, Profile a2dp_sink + handsfree_head_unit (HFP mit Mikrofon), Testton im Kopfhörer.
+- Offen (2026-11-08): Antippen der Q45 im Phosh-Schnellmenü (Phosh 0.58) löst keinen Verbindungsversuch
+  aus (bluetoothd-Log bleibt leer). gnome-control-center 51 startet nur mit XDG_CURRENT_DESKTOP=Phosh:GNOME
+  ("bluetooth"-Panel), dort noch ungetestet. Workaround: bluetoothctl connect <MAC> bzw. tools/bt_audio_test.sh.
