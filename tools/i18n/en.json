@@ -713,5 +713,8 @@
  "echo \"== AOP-Schalter vorher\"; show 0x210540000; python3 $P/mmio_peek.py 0x210000600 1": "echo \"== AOP switch before\"; show 0x210540000; python3 $P/mmio_peek.py 0x210000600 1",
  "# AP: pin4 <- aud0, aud0 <- pin4, Pin 4 freigeben": "# AP: pin4 <- aud0, aud0 <- pin4, enable pin 4",
  "# AOP: Vorgaben (reg-defaults), Ausgangsfreigabe 8, pin0 <- mca1, mca1 <- pin0, Pin 0 freigeben": "# AOP: defaults (reg-defaults), output enable 8, pin0 <- mca1, mca1 <- pin0, enable pin 0",
- "echo \"== nachher\"; show 0x20a004000; show 0x210540000": "echo \"== after\"; show 0x20a004000; show 0x210540000"
+ "echo \"== nachher\"; show 0x20a004000; show 0x210540000": "echo \"== after\"; show 0x20a004000; show 0x210540000",
+ "# Test: Codec-Ports laut ADT (hawk_active/asp_active = i2sA('pin2')) -> AP-Schalter Pin 2 freigeben": "# Test: codec ports per ADT (hawk_active/asp_active = i2sA('pin2')) -> enable AP switch pin 2",
+ "# (Index 17 = 0x20a004044) und pin2 <- aud0 (mca0, MCLK 12 MHz) bzw. aud0 <- pin2 routen,": "# (index 17 = 0x20a004044) and route pin2 <- aud0 (mca0, MCLK 12 MHz) or aud0 <- pin2,",
+ "# danach PLL/RCO des CS42L71 prüfen (root, auf dem iPhone).": "# then check the CS42L71 PLL/RCO (root, on the iPhone)."
 }

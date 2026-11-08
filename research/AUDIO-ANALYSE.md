@@ -263,3 +263,20 @@
 - Stand des MCLK-Pfads: NCO0 12 MHz ✔, mca0 Power ✔, MCA0 ClkCon 0x50 ✔, AP- und AOP-Schalter ✔.
   Offen: MCA0 selbst (Serialisierer/Taktausgang erst bei laufendem Stream?), Pinmux der AOP-I2S-Pins
   (AOP-GPIO-Funktion), oder MCLK kommt über einen ganz anderen Weg. Ohne Messgerät nicht prüfbar.
+
+### MCA-Konfiguration und Codec-Ports (2026-11-08 20:15)
+
+- MCA-Registerzugriff in AppleAE2MCA: `base + idx*4` (Lesen 0x…644e6b4, Schreiben 0x…644e734).
+  Konfiguration (0x…644c140): ClkCon -> mcaMCLKControl; bei mca-version != 0 Reset `0x11=3`,
+  `0x12=1` (warten bis Bit 0 = 0) bzw. `0x11=0x301`; dann `4=0`, `7=0xd`, `0xc=0xd`,
+  `2=(0x2000-(rxbits<<8))|(0x20-txbits)`, 8/0xd = Teiler, 5, 9/0xe = Slot-Masken, 6/0xb = Takt-/
+  Sync-Quelle, `4 = 1|3` (Freigabe), `0x10 = 0xb0003000`, `3` = Rahmen/Sync. Start: `3 = 1/2`.
+- ADT-Codec-Ports: `hawk_active`/`asp_active` = `i2sA('pin2')`, `msp_active` = `i2sA('pin0')`;
+  Takt-Master `AUD1('ap2h')` = audio-codec-hawking unter **mca2** (NCO2, Route aud2->pin2),
+  `ap2x` = reference (mca2b), `ap2v` = voice/mikeybus (mca4, NCO4, 12 MHz).
+  mca0-`audio-data,cs42l71` (12 MHz, NCO0, aud0->pin4) ist ein weiterer Port.
+- Test `tools/i2s_pin2_test.sh`: Pin 2 freigegeben (0x20a004044 = 0x11), pin2 <- aud0 -> PLL rastet
+  weiterhin nicht ein.
+- Fazit für jetzt: ohne Messung am MCLK-Pin nicht weiter eingrenzbar. Nächste sinnvolle Schritte wären
+  die vollständige MCA-Initialisierung (Reset 0x11/0x12, Freigabe 4, 0x10) für mca0 **und** mca2
+  sowie NCO2 auf 12 MHz, oder ein Logikanalysator.
