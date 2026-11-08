@@ -56,3 +56,23 @@
   "ampworker" (vgl. ADT SPUApp spkamp-config_arc / _btmspk).
 - Hinweise "I2C Power", "Amp Power", "mux Power": AOP schaltet evtl. PMU-Anschlüsse per eigenem I2C.
 - Empfehlung: Ghidra (headless) mit zwei Speicherblöcken für die weitere Datenflussanalyse.
+
+
+## Ghidra-Sitzung 2026-11-08 (AOP-Firmware, Ghidra 12.2 headless, tools: ~/tools/aop_ghidra.sh)
+
+- Basis 0x00FFFFD0 für Text **und** .data; der Init-Teil am Ende (ab ~0x10a3000) ruft Ziele mit +0x347DC
+  (z. B. blx 0xfcc3ec -> memcpy 0x1000bc8).
+- Button-Konstruktor (0x10a863c): `this+0x6a0 = 20` (Pin), `this+0x698 = 0x1090600`, `this+0x69c = 0x1090c08`,
+  `this+0x6c2 = 1` (immer Pin-Pfad).
+- 0x1090600 = GPIO-Controller-Objekt, MMIO phys **0x2_100f0000** (AOP-GPIO); vtbl+0x10 = set(pin,v):
+  Bit0 von `base + pin*4`.  -> **enableMaggie = AOP-GPIO 20 Bit0** (Register 0x2100f0050, Ruhe 0x78a02).
+- 0x1090c08 = MMIO-Fenster phys **0x2_10c02000**; enableMCLK schreibt dort **0x48 (an) / 0x08 (aus)**.
+- Maggie-Service (0x1010c10) Kommando 0x1d = Bitstream laden: MCLK an -> Maggie an -> SPI-Write -> beide aus.
+  Kein CRESET-Toggle in der AOP (macht der AP über GPIO 0x16).
+- AOP-MMIO-Liste enthält kein AP-spi1; Bitstream-SPI läuft laut ADT (maggie-arc auf spi1, reg CS1) über den AP.
+- Test: MCLK=0x48 + Pin20=1 gesetzt (Readback ok), CRESET/CS-Timing korrigiert (ctypes-ioctl statt
+  fcntl.ioctl, das die GIL hielt – frühere Brute-Force-Tests waren deshalb ungültig) -> **CDONE weiter 0**.
+- CDONE-Pin 0x1a: 0x7cb8e = Eingang, Pull-up an -> Lesung echt. CS1 (0xb1) idle high. s5l-SPI CONFIG 0x1E
+  enthält bereits CPOL|CPHA (Mode 3).
+- Offen: spi1-Pinmux (SCK/MOSI) prüfen, CS42L71-ID über CS0 als Gegenprobe; AppleMaggie-kext (AP-Seite)
+  im Kernelcache auf zusätzliche Schritte untersuchen.

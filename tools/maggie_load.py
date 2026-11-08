@@ -25,14 +25,42 @@ def gpio_get(line):
 
 def spi_message(dev, data, out):
     fd = os.open(dev, os.O_RDWR)
+    if "MAGGIE_MODE" in os.environ:                       # s5l-Treiber: CONFIG 0x1E = CPOL|CPHA fest
+        fcntl.ioctl(fd, 0x40016b01, struct.pack("B", int(os.environ["MAGGIE_MODE"])))
     buf = bytearray(data)
     cbuf = (ctypes.c_char * len(buf)).from_buffer(buf)
     xfer = struct.pack("<QQIIHBBBBBB", ctypes.addressof(cbuf), 0, len(buf), SPEED, 0, 8, 0, 0, 0, 0, 0)
     req = (1 << 30) | (len(xfer) << 16) | (ord('k') << 8) | 0       # SPI_IOC_MESSAGE(1)
+    xb = ctypes.create_string_buffer(xfer, len(xfer))
+    libc = ctypes.CDLL(None, use_errno=True)              # ctypes gibt die GIL frei, fcntl.ioctl nicht
     out["start"] = time.monotonic()
-    fcntl.ioctl(fd, req, xfer)
+    if libc.ioctl(fd, ctypes.c_ulong(req), xb) < 0:
+        out["err"] = ctypes.get_errno()
     out["end"] = time.monotonic()
     os.close(fd)
+
+# Aus der AOP-Firmware (Button::enableMCLK / enableMaggie, Ghidra):
+#   MCLK an  = *(0x2_10c02000) = 0x48 (aus = 0x08)
+#   Maggie an = AOP-GPIO 20 (0x2_100f0000 + 20*4) Bit0 = 1
+AOP_MCLK, AOP_PIN20 = 0x210c02000, 0x2100f0000 + 20 * 4
+
+def mem(addr, val=None):
+    import mmap
+    page = addr & ~0x3fff
+    fd = os.open("/dev/mem", os.O_RDWR | os.O_SYNC)
+    m = mmap.mmap(fd, 0x4000, mmap.MAP_SHARED, mmap.PROT_READ | mmap.PROT_WRITE, offset=page)
+    o = addr - page
+    if val is not None:
+        m[o:o + 4] = struct.pack("<I", val)
+    r = struct.unpack("<I", m[o:o + 4])[0]
+    m.close(); os.close(fd)
+    return r
+
+if os.environ.get("MAGGIE_AOP", "0") == "1":
+    mem(AOP_MCLK, 0x48)
+    mem(AOP_PIN20, (mem(AOP_PIN20) & ~1) | 1)
+    time.sleep(0.05)
+    print(f"AOP: MCLK=0x{mem(AOP_MCLK):x}  Pin20=0x{mem(AOP_PIN20):x}")
 
 bit = open(BIT, "rb").read()
 assert b"\x7e\xaa\x99\x7e" in bit[:256], "keine iCE40-Sync-Sequenz – falsche Datei?"

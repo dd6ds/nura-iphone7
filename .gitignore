@@ -66,3 +66,6 @@ tools/ios/
 
 # Binaries
 *.so
+
+# Dekompilate/Disassemblate von Apple-Firmware
+research/maggie/*.c
