@@ -725,5 +725,8 @@
  "Taktquellen 6/0xb, Freigabe 4=1, 0x10=0xb0003000, Sync/Start 3.": "clock sources 6/0xb, enable 4=1, 0x10=0xb0003000, sync/start 3.",
  "Register = Basis 0x20a0a0000 + N*0x4000 + idx*4 (AppleAE2MCA 0x…644e6b4/e734).": "Register = base 0x20a0a0000 + N*0x4000 + idx*4 (AppleAE2MCA 0x…644e6b4/e734).",
  "Vorsicht: Werte für 6/0xb/3 geschätzt (iOS berechnet sie aus der Stream-Konfiguration).\"\"\"": "Caution: values for 6/0xb/3 are estimates (iOS computes them from the stream configuration).\"\"\"",
- "python3 $P/peek.py 0x20a004008 0x020202                        # pin2 <- aud2 (mca2)": "python3 $P/peek.py 0x20a004008 0x020202                        # pin2 <- aud2 (mca2)"
+ "python3 $P/peek.py 0x20a004008 0x020202                        # pin2 <- aud2 (mca2)": "python3 $P/peek.py 0x20a004008 0x020202                        # pin2 <- aud2 (mca2)",
+ "# Taschenlampen-Test (root, auf dem iPhone): ADT isp function-torch_enable = GPIO 0xb0 (AP-Pin 176).": "# Torch test (root, on the iPhone): ADT isp function-torch_enable = GPIO 0xb0 (AP pin 176).",
+ "# Nach 5 s Vorlauf dreimal 2 s an / 1 s aus; danach sicher aus.": "# After a 5 s lead-in: three times 2 s on / 1 s off; then safely off.",
+ "echo \"aus\";     timeout 1 gpioset -c gpiochip0 176=0 2>/dev/null": "echo \"off\";     timeout 1 gpioset -c gpiochip0 176=0 2>/dev/null"
 }
