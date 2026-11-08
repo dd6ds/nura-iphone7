@@ -163,3 +163,103 @@
   sowie vtbl+0x430(0xe3ff8103) und vtbl+0x710(0x185) auf; nach dem RCO-Hochlauf folgen 0x20000 (mask 3),
   0x10000 (mask 1 / 0xc0), 0x50000. Möglicherweise braucht der RCO den I2S/MCA-Takt (MCLK vom AP) statt
   nur des AOP-MCLK.
+
+### RCO-Suche (2026-11-08 18:15)
+
+- vtable AppleCS42L71Audio = 0x…6fcad38 (361 Einträge). Aufgelöst: +0x430 = messageClients() (nur
+  IOKit-Benachrichtigung), +0x710 = Controls-Verwaltung (Software), +0xad8 = `_readReg` (fragt per +0xb40,
+  ob 32-bit-Register, dann `_readDataBlock`), +0xb18 = maskWrite. `c6130` wartet nur auf einen
+  Software-Zustand (this+0xba2 == 7, 19×100 ms). -> Die Register-Sequenz aus iOS ist vollständig nachgebaut.
+- Wortlesen (C4) bestätigt: liefert dieselben Werte wie Bytelesen (Seite 0/1), Seite 4 = 0xff, Seite 3 = 0.
+- Versucht ohne Erfolg (0x3000c Bit 3 bleibt 0, Seite 3 komplett 0):
+  0x10000 Bit 1 = 0 (c3f04, Taktwahl), Flanke 0x10001 Bit 6 (1 -> 0), mit AOP-MCLK 0x48 + AOP-GPIO 20.
+- PMU-GPIO 12 (`digitalldo_pulldown`) = Ausgang 0 (Pulldown inaktiv), `hawk_pwr` PMU 0x308 = 1.
+- Vermutung: Der Codec braucht den Audio-Takt vom AP (MCA/I2S, ADT `hawk_master = AUD1('ap2h')`,
+  Pins 0x00–0x04 auf Funktion 1) oder eine weitere Versorgung über die AOP (`external-power-provider = 47`).
+  Nächster Schritt: MCA-Block (0x20a0a0000…) und den AUD1/ap2h-Takt untersuchen.
+
+### Audio-Takt: NCO läuft, Weg zum Codec noch offen (2026-11-08 18:40)
+
+- ADT: `mca0` (0x20a0a0000, IRQ 227, clock-gate 64, zweites Register 0x20a002000) bedient den Codec;
+  `function-mclk_frequency = NCOf(0)`, `function-i2s_route = i2s-switch i2sR('aud0','pin4',0x30303)`,
+  audio-data reg enthält `00 1b b7 00` = **MCLK 12 MHz**. mca1 -> Lautsprecher/Maggie (virtual-mca1a/1b),
+  weitere MCAs für hawking/reference/voice.
+- **NCO** `nco,s5l8960x` @ 0x2_0e044000, 5 Seiten à 0x4000 (Kanal = Seite). iOS-Treiber
+  `AppleS5L8960XNCO::setFrequency` (0x…657453c) entschlüsselt und in `tools/nco_set.py` nachgebaut:
+  fin = 2,4 GHz/7; div = 2·2,4G/(7f); DIV = LFSR(0x7ff, 0xa01, div/4−3 Schritte)<<2 | div&3;
+  INC1 = Rest, INC2 = Rest−7f, ACCINIT = (Rest^0x80000000)−7f, CTRL = 0x80001000 (Bit 30 = busy).
+  Kanal 0 auf 12 MHz gesetzt: INC1 = 0x00b71b00, CTRL liest 0x80309000. ✔
+- i2s-switch @ 0x20a004000: alle Pin-Gruppen 0x00181818 (unbelegt). Pin 4 (0x20a004010) testweise 0x030303.
+  0x20a002000..c = 0.
+- RCO des Codecs startet trotzdem nicht. Fehlend vermutlich: MCA0 selbst (Takt-Gate 64 einschalten,
+  MCLK-Ausgang aktivieren; Register 0x20a002000) und die richtige Kodierung des i2s-switch.
+  `AppleARMIISSwitch` (AppleIISController.kext) berechnet nur Masken; die Register schreibt eine
+  SoC-spezifische Unterklasse (vtbl+0x588) – noch nicht gefunden. setMCLKFrequency ebenfalls dort.
+- Vorsicht: MCA-Register (0x20a0a0000) noch nicht gelesen – bei abgeschaltetem Takt-Gate kann ein Zugriff
+  das System anhalten. Zuerst Gate 64 im PMGR finden/einschalten (Linux: power-domain ps_mca0?).
+
+### MCA/i2s-switch entschlüsselt (AppleAE2Audio.kext, 2026-11-08 19:00)
+
+- Echte Treiber: `com.apple.driver.AppleAE2Audio` (Kernelcache-Datei-Offset 0xc386c0) mit `AppleAE2MCA`,
+  `AppleAE2I2SSwitch5`, `AppleAE2AOPI2SSwitch1`. Werkzeuge: `research/tools/kc_kext*.py`.
+- **PMGR**: mca0 = Power-State 0x2_0e080178 (Linux `ps_mca0`, unter `ps_sio_p`); war aus (0xa00).
+  `tools/pmgr_ps.py 0x80178 on` -> 0xff, danach sind MCA0-Register lesbar (0x20a0a0000 = 0x5 = mca-version,
+  +4 = 0x00100010, Blöcke bei +0x60/+0x80 …).
+- **MCLK-Steuerung** (`AppleAE2MCA::_getMCLKClkCon`): Wert in `mcaMCLKControl` = zweites MCA-Register
+  (mca0: 0x20a002000): Quelle nclk==f -> 0x10, ==2f -> 0x18, ==4f -> 0x20 (Teiler-Modus: 8),
+  `| 0x40` = MCLK-Ausgang an. Für 12 MHz aus NCO0 = 12 MHz: **0x50**.
+- **i2s-switch** (`AppleAE2I2SSwitch5`, 0x20a004000): Register-Index N = Ziel `pinN` (0..4), `audN` = 5+N;
+  je drei 5-bit-Felder (Bits 4:0, 12:8, 20:16) mit Quellindex: `audN` = N, `pinN` = 8+N, 0x18 = frei.
+  Ausgangsfreigabe für Pins in Index 19 (0x20a00404c): Bit 4 (Signaltyp 0) / Bit 0 (Typ 1) bzw. Index 15+N.
+  Route mca0: `aud0 -> pin4` => 0x20a004010 = 0x000000, 0x20a00404c |= 0x11.
+- Alles zusammen in `tools/codec_clock_on.sh` (PMGR an, NCO0 12 MHz, ClkCon 0x50, Route). Ergebnis:
+  **RCO startet weiterhin nicht** (0x3000c = 0, Seite 3 = 0).
+- Offen: `function-pclk_gate` der MCA (Takt-Gate 64 noch nicht geschaltet), MCA-Grundinitialisierung
+  („cannot init IES“, FIFO), ob MCLK physisch am Codec ankommt (Pins 0x00–0x04 Funktion 1 = I2S-Gruppe?),
+  bzw. ob der RCO überhaupt vom MCLK abhängt. Nicht ausgeschlossen: Seite 3 ist anders adressiert.
+
+### SPIv2-Steuerregister 0x21 (`[A1, ctrl]`) – 2026-11-08 19:20
+
+- `AppleAE2MCA::start`: Version/FIFO prüfen, IES/DMA-Ereignisquellen (Software), dann `function-*`
+  einlesen; MCLK-Register schreibt nur `setMCLKEnabled` (ClkCon, s. o.). Die iOS-Hochfahrfunktion des
+  Codecs ruft vor dem RCO-Schritt KEINE MCLK-Funktion (die Aufrufe auf this+0xc08 gehen in
+  AppleCSEmbeddedAudio = Headset/Mikey). -> MCLK als RCO-Voraussetzung eher unwahrscheinlich.
+- `_initializeCodecRegisters` (0x…5f72d9c): `[A1, ctrl|0x50]`, 1 ms, Status `[90 00]` pollen bis
+  (st & 0x90) == 0x90 (max. 49×), dann `[A1, ctrl|0x40]` (`tools/cs42l71_v2.py: init()`).
+- Test: erster Lauf Status 0xd0 (ok), danach meldet die Brücke dauerhaft 0x80/0xc0 (nicht bereit) –
+  Lesen unmöglich. **`[A1, 0x01]` holt sie zurück** (Chip-ID 0x42 wieder lesbar,
+  `tools/cs42l71_recover.py`). Bedeutung der Steuerbits noch offen; iOS ändert sie in 0x…5f73780
+  (Bit 2 u. a.) – als Nächstes entschlüsseln.
+- `tools/cs42l71_v2.py: read_poll()` liest robust mit mehreren Status-/Datenfenstern in einer CS-Phase.
+
+### Steuerregister der SPIv2-Brücke entschlüsselt (2026-11-08 19:40)
+
+- Hilfsfunktion 0x…5f733c4: `[90 00]` = Status (2 Bytes, Wert im 2.), `[91 00 00]` = Steuerregister
+  lesen (3 Bytes, Wert im 3.), `[A1 x]` = Steuerregister schreiben.
+- Steuerbits (aus AppleCSSPIv2Audio): Bit 0 = Brücke wecken (holt sie aus „nicht bereit“),
+  Bit 2 = `_enableControlI2C`, **Bit 5 = `_enableControlPLL`** (danach Status Bit 3 = PLL eingerastet,
+  max. 51 ms), Bit 6 = Abschluss nach Zugriffen, Bit 4 (mit 0x50 in `_initializeCodecRegisters`)
+  lässt die Brücke ohne laufenden Takt hängen.
+- `tools/cs42l71_pll.py`: Steuerregister 0x01 -> 0x21 gesetzt, **PLL rastet nicht ein** (Status-Bit 3
+  bleibt 0) – mit AOP-MCLK, NCO0 12 MHz, MCA0-ClkCon 0x50, Route aud0->pin4, mca0 an, und auch mit
+  geladener Maggie (`MAGGIE=1 tools/cs42l71_test.sh`; Codec bleibt dabei lesbar).
+- Schluss: Der Codec bekommt **keinen Referenztakt** (die Brücken-PLL braucht ihn, der RCO/Kern
+  vermutlich ebenso). Der MCLK-Pfad SoC -> Codec ist noch nicht vollständig. Kandidaten: falscher
+  Ziel-Pin im i2s-switch (pin4 laut ADT, aber Signaltyp/Feld?), MCA0 muss selbst laufen (Serialisierer
+  an), oder der Codec-MCLK kommt aus einer anderen Quelle (Maggie/AOP `mckE`, AOP-i2s-switch
+  0x210540000 mit `aop_i2s_oe_reg_val = 8`).
+
+### AOP-i2s-switch (2026-11-08 19:55)
+
+- `AppleAE2AOPI2SSwitch1` (gleiche Kext): Basis 0x2_10540000, Version bei +0xffc, zweites Register
+  0x2_10000600 = `aop_i2s_oe_reg_val` (ADT 8; iBoot-Stand 0x0c). `reg-defaults` = Paare (Index, Wert):
+  (0, 0), (2, 0x080808); übrige 0x181818. Geschrieben werden Index 0–3, +0x3c, +0x40.
+- Gleiches Feldformat wie der AP-Schalter: Ziel `pinN` = Index N (Freigabe Index 15+N), `mcaN` = 2+N;
+  Quellen `mcaN` = N, `pinN` = 8+N. Route-Flags 0x30303 = beide Richtungen.
+- `tools/i2s_route.sh`: AP pin4<-aud0 (0x000000), aud0<-pin4 (0x0c0c0c), Freigabe 0x20a00404c |= 0x11;
+  AOP pin0<-mca1 (0x010101), mca1<-pin0 (0x080808), Vorgabe Index 2 = 0x080808, Freigabe
+  0x21054003c |= 0x11, 0x210000600 |= 8. Alle Werte zurückgelesen ✔.
+- Ergebnis: **PLL der Codec-Brücke rastet weiterhin nicht ein**, RCO bleibt aus.
+- Stand des MCLK-Pfads: NCO0 12 MHz ✔, mca0 Power ✔, MCA0 ClkCon 0x50 ✔, AP- und AOP-Schalter ✔.
+  Offen: MCA0 selbst (Serialisierer/Taktausgang erst bei laufendem Stream?), Pinmux der AOP-I2S-Pins
+  (AOP-GPIO-Funktion), oder MCLK kommt über einen ganz anderen Weg. Ohne Messgerät nicht prüfbar.

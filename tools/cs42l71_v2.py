@@ -29,11 +29,47 @@ def read(addr, n, polls=0, cmd=0xC6, ctrl=0, verbose=True):
         print("rx    :", rx.hex(" "))
     return sts, rx[d0:d0 + n]
 
+def init(ctrl=0, verbose=True):
+    """Nachbau AppleCSSPIv2Audio::_initializeCodecRegisters (0x…5f72d9c): [A1, ctrl|0x50],
+    1 ms warten, Status [90 00] lesen bis (st & 0x90) == 0x90 (max. 49x), dann [A1, ctrl|0x40]."""
+    import time
+    xfer([0xA1, ctrl | 0x50])
+    st = 0
+    for i in range(49):
+        time.sleep(0.001)
+        st = xfer([0x90, 0x00])[1]
+        if (st & 0x90) == 0x90:
+            break
+    xfer([0xA1, ctrl | 0x40])
+    if verbose:
+        print(f"init: Status {st:#04x} nach {i + 1} Versuchen ->", "ok" if (st & 0x90) == 0x90 else "NICHT bereit")
+    return (st & 0x90) == 0x90
+
+def read_poll(addr, n=8, windows=12, cmd=0xC6, ctrl=0):
+    """Lesen mit mehreren Status-/Datenfenstern in EINER CS-Phase: Kopf, dann je Fenster
+    [cmd 00] + max(n, 2k+2) Nullbytes; Daten = die n Bytes nach dem ersten Status mit (st & 0x50) == 0x50."""
+    k = min(n, 32)
+    w = max(n, 2 * k + 2)
+    xfer([0xA1, ctrl])
+    tx = [0x80, addr & 0xff, (addr >> 8) & 0xff, (addr >> 16) & 0xff, 0x81, n & 0xff, (n >> 8) & 0xff, cmd, 0]
+    tx += [0] * (2 * k)
+    pos = []
+    for _ in range(windows):
+        tx += [cmd, 0]
+        pos.append(len(tx) - 1)
+        tx += [0] * w
+    rx = xfer(tx)
+    xfer([0xA1, ctrl | 0x40])
+    for p in pos:
+        if (rx[p] & 0x50) == 0x50:
+            return rx[p], rx[p + 1:p + 1 + n]
+    return rx[pos[-1]], None
+
 def rd(addr):
     """ein Byte-Register lesen (Anzahl 8 anfordern, ohne Auto-Inkrement kommt 8x derselbe Wert)"""
-    sts, d = read(addr, 8, 0, verbose=False)
-    if (sts[0] & 0x50) != 0x50:
-        raise IOError(f"CS42L71 nicht bereit beim Lesen von {addr:#x} (Status {sts[0]:#x})")
+    st, d = read_poll(addr, 8)
+    if d is None:
+        raise IOError(f"CS42L71 nicht bereit beim Lesen von {addr:#x} (Status {st:#x})")
     return d[0]
 
 def wr(addr, data, cmd=0xB5, ctrl=0, verbose=False):
