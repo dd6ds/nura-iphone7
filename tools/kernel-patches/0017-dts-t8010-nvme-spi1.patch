@@ -36,7 +36,17 @@
  			reg = <0x2 0x0a088000 0x0 0x4000>;
 --- a/arch/arm64/boot/dts/apple/t8010-7.dtsi
 +++ b/arch/arm64/boot/dts/apple/t8010-7.dtsi
-@@ -164,6 +164,27 @@
+@@ -145,6 +145,9 @@
+ 	};
+ };
+ 
++/* i2c2/i2c3 NICHT aktivieren: mit status="okay" (r117-Kernel) RCU-Stalls + NVMe-IRQs bleiben aus,
++ * System hängt (2026-11-08). Zugriff vorerst per /dev/mem-Polling (tools/i2c_poll.py). */
++
+ &spi2 {
+ 	status = "okay";
+ 
+@@ -164,6 +167,27 @@
  &pcie {
  	status = "okay";
  
@@ -64,7 +74,7 @@
  	/* Port 2: WLAN (BCM4355, ADT pci-bridge2/wlan) */
  	port02: pci@2,0 {
  		device_type = "pci";
-@@ -173,7 +194,7 @@
+@@ -173,7 +197,7 @@
  		power-gpios = <&pinctrl_ap 88 GPIO_ACTIVE_HIGH>,
  			      <&pmic_gpio 10 GPIO_ACTIVE_HIGH>;
  		max-link-speed = <1>;
@@ -73,7 +83,7 @@
  		#address-cells = <3>;
  		#size-cells = <2>;
  		ranges;
-@@ -181,7 +202,7 @@
+@@ -181,7 +205,7 @@
  		/* MAC (local-mac-address) und brcm,cal-blob trägt m1n1 aus der ADT ein */
  		wifi0: wifi@0,0 {
  			compatible = "pci14e4,43dc";
@@ -82,7 +92,7 @@
  			brcm,board-type = "apple,elsa";
  			/* iPhone-ADT hat keine Antennen-SKU; Platzhalter aktiviert in brcmfmac die
  			 * Apple-Firmwareauswahl über die OTP-Daten (Modul/Hersteller/Version) */
-@@ -223,3 +244,26 @@
+@@ -223,3 +247,26 @@
  		local-bd-address = [00 00 00 00 00 00];
  	};
  };
