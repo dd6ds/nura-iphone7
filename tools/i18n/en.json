@@ -763,5 +763,8 @@
  "# Bus 2: ALS ct821 0x29, Taptic AD81006 0x21, Lautsprecher cs35l26 0x40; Bus 3: ica60 0x54/0x56": "# Bus 2: ALS ct821 0x29, Taptic AD81006 0x21, speaker amp cs35l26 0x40; bus 3: ica60 0x54/0x56",
  "# Nur lesend (i2cget/i2cdump -r), schreibt nichts.": "# Read only (i2cget/i2cdump -r), writes nothing.",
  "echo \"== Busse\"": "echo \"== Buses\"",
- "command -v i2cget >/dev/null || { echo \"i2c-tools fehlen\"; exit 0; }": "command -v i2cget >/dev/null || { echo \"i2c-tools missing\"; exit 0; }"
+ "command -v i2cget >/dev/null || { echo \"i2c-tools fehlen\"; exit 0; }": "command -v i2cget >/dev/null || { echo \"i2c-tools missing\"; exit 0; }",
+ "\"\"\"als_ct821.py [sekunden] [gain 0-7] – Umgebungslichtsensor CT821 (I2C2 0x29) auslesen (root).": "\"\"\"als_ct821.py [seconds] [gain 0-7] – read the ambient light sensor CT821 (I2C2 0x29) (root).",
+ "# Gemessen: AVALID kommt nach (256-ATIME)*2,73 ms; Gain-Feld 3 Bit (iOS nutzt 6/7), 0x0C Bit 6 = an.": "# Measured: AVALID arrives after (256-ATIME)*2.73 ms; gain field 3 bits (iOS uses 6/7), 0x0C bit 6 = on.",
+ "wr(0x01, 0x80)                    # 128 Zyklen à 2,73 ms ≈ 350 ms": "wr(0x01, 0x80)                    # 128 cycles of 2.73 ms ≈ 350 ms"
 }

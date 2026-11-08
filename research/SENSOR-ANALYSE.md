@@ -21,7 +21,12 @@
 - TSL257x-artig: Befehlsbyte 0x80|reg (0xa0|reg = Auto-Increment). ID (0x92) = 0x9b.
 - iOS-Einschaltfolge: 0x8C=(cfg|0x40)&0xF0, 0x8C=cfg|0x40, 0x81=ATIME, 0x8F=Gain, 0x80|=0x13, 0x81, 0x8C.
 - iOS liest Daten aus 0x94/0x95 (CH0) und 0x96/0x97 (CH1).
-- Ergebnis: ENABLE=0x13, STATUS=0x31 (gültig), **Daten bleiben 0** – auch bei Gain 3, Licht/abgedeckt. Offen.
+- iOS-Werte: ATIME 0xdc, 0x0C = 0x41 (Low-Nibble = Zeit-Multiplikator), Gain 6/7 (Feld 3 Bit, Reg 0x0F).
+- Der Wandler läuft: AVALID kommt genau nach (256-ATIME)·2,73 ms (102 ms bei 0xdc, 354 ms bei 0x80).
+- **Funktioniert** (`tools/als_ct821.py`, Gain 7, ATIME 0x80): Licht auf die Oberkante vorn →
+  CH0 4000–9000 / CH1 400–870; abgedeckt bzw. dunkler Raum → 0–2. CH1 ≈ 10 % von CH0 (Raumlicht).
+- Nächster Schritt: Dienst im Userspace (Polling) für automatische Display-Helligkeit, solange der
+  Linux-Treiber für i2c2 den Boot aufhängt.
 
 ## Taptic / AD81006
 - POR-Status Reg 0x14 Bit 4 = 1 (ok), ID Reg 0x01 = 0xcd.
