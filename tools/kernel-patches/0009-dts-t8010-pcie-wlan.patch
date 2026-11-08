@@ -1,0 +1,122 @@
+--- a/arch/arm64/boot/dts/apple/t8010.dtsi
++++ b/arch/arm64/boot/dts/apple/t8010.dtsi
+@@ -221,6 +221,44 @@
+ 			status = "disabled";
+ 		};
+ 
++		pcie: pcie@610000000 {
++			compatible = "apple,t8010-pcie";
++			device_type = "pci";
++			reg = <0x6 0x10000000 0x0 0x1000000>,	/* ECAM, muss Index 0 sein */
++			      <0x6 0x00000000 0x0 0x8000>,
++			      <0x6 0x00008000 0x0 0x4000>,
++			      <0x6 0x0a000000 0x0 0x40000>,
++			      <0x6 0x00010000 0x0 0x8000>,
++			      <0x6 0x01000000 0x0 0x4000>,
++			      <0x6 0x02000000 0x0 0x4000>,
++			      <0x6 0x03000000 0x0 0x4000>,
++			      <0x6 0x04000000 0x0 0x4000>,
++			      <0x6 0x03008000 0x0 0x4000>;
++			reg-names = "config", "phy0", "phy1", "phy2", "glue",
++				    "port0", "port1", "port2", "port3", "dart2";
++			interrupt-parent = <&aic>;
++			interrupts = <AIC_IRQ 270 IRQ_TYPE_LEVEL_HIGH>,
++				     <AIC_IRQ 273 IRQ_TYPE_LEVEL_HIGH>,
++				     <AIC_IRQ 276 IRQ_TYPE_LEVEL_HIGH>,
++				     <AIC_IRQ 279 IRQ_TYPE_LEVEL_HIGH>;
++			msi-controller;
++			msi-parent = <&pcie>;
++			msi-ranges = <&aic AIC_IRQ 288 IRQ_TYPE_EDGE_RISING 32>;
++			apple,msi-doorbell = /bits/ 64 <0xbffff000>;
++			bus-range = <0x00 0x0f>;
++			#address-cells = <3>;
++			#size-cells = <2>;
++			ranges = <0x02000000 0x0 0xc0000000 0x7 0xc0000000 0x0 0x40000000>;
++			/* statisches DART-Fenster: Bus 0x80000000 -> RAM 0x800000000, 512 MiB */
++			dma-ranges = <0x02000000 0x0 0x80000000 0x8 0x00000000 0x0 0x20000000>;
++			apple,dma-window = <0x80000000 0x8 0x00000000 0x20000000>;
++			power-domains = <&ps_pcie>, <&ps_pcie_aux>, <&ps_pcie_ref>;
++			pinctrl-0 = <&pcie_clkreq_pins>;
++			pinctrl-names = "default";
++			debug-gpios = <&pinctrl_ap 206 GPIO_ACTIVE_HIGH>;
++			status = "disabled";
++		};
++
+ 		spi2: spi@20a088000 {
+ 			compatible = "apple,t8010-spi";
+ 			reg = <0x2 0x0a088000 0x0 0x4000>;
+@@ -332,6 +370,13 @@
+ 				     <AIC_IRQ 47 IRQ_TYPE_LEVEL_HIGH>,
+ 				     <AIC_IRQ 48 IRQ_TYPE_LEVEL_HIGH>;
+ 
++			pcie_clkreq_pins: pcie-clkreq-pins {
++				pinmux = <APPLE_PINMUX(16, 1)>,
++					 <APPLE_PINMUX(17, 1)>,
++					 <APPLE_PINMUX(18, 1)>,
++					 <APPLE_PINMUX(19, 1)>;
++			};
++
+ 			i2c0_pins: i2c0-pins {
+ 				pinmux = <APPLE_PINMUX(197, 1)>,
+ 					 <APPLE_PINMUX(196, 1)>;
+--- a/arch/arm64/boot/dts/apple/t8010-7.dtsi
++++ b/arch/arm64/boot/dts/apple/t8010-7.dtsi
+@@ -71,6 +71,18 @@
+ 			nvmem-cell-names = "rtc_offset";
+ 		};
+ 
++		/* D2333-GPIOs (Sandcastle pmu_gpio): GPIO 10 = WLAN reg_on */
++		pmic_gpio: gpio@900 {
++			compatible = "apple,pmic-gpio";
++			reg = <0x900 0x40>;
++			apple,input-reg = <0x186>;
++			apple,gpio-offsets = <0x00 0x02 0x04 0x06 0x08 0x0a 0x0c 0x0e
++					      0x10 0x12 0x14 0x16 0x18 0x1a 0x1c 0x1e
++					      0x20 0x27 0x2d 0x33 0x39>;
++			gpio-controller;
++			#gpio-cells = <2>;
++		};
++
+ 		/* Touch-Controller Kern-Versorgung (Sandcastle: touch_pwrsw) */
+ 		touch_core: touch-core@31f {
+ 			compatible = "apple,pmic-switch";
+@@ -141,3 +153,39 @@
+ 		clocks = <&touch_clk>;
+ 	};
+ };
++
++&pcie {
++	status = "okay";
++
++	/* Port 2: WLAN (BCM4355, ADT pci-bridge2/wlan) */
++	port02: pci@2,0 {
++		device_type = "pci";
++		reg = <0x1000 0x0 0x0 0x0 0x0>;
++		reset-gpios = <&pinctrl_ap 14 GPIO_ACTIVE_LOW>;
++		/* Einschaltreihenfolge: device_wake (SoC 88), dann reg_on (PMU 10) */
++		power-gpios = <&pinctrl_ap 88 GPIO_ACTIVE_HIGH>,
++			      <&pmic_gpio 10 GPIO_ACTIVE_HIGH>;
++		max-link-speed = <1>;
++		bus-range = <1 1>;
++		#address-cells = <3>;
++		#size-cells = <2>;
++		ranges;
++
++		/* MAC (local-mac-address) und brcm,cal-blob trägt m1n1 aus der ADT ein */
++		wifi0: wifi@0,0 {
++			compatible = "pci14e4,43dc";
++			reg = <0x10000 0x0 0x0 0x0 0x0>;
++			brcm,board-type = "apple,elsa";
++			/* iPhone-ADT hat keine Antennen-SKU; Platzhalter aktiviert in brcmfmac die
++			 * Apple-Firmwareauswahl über die OTP-Daten (Modul/Hersteller/Version) */
++			apple,antenna-sku = "X0";
++			local-mac-address = [00 00 00 00 00 00];
++		};
++	};
++};
++
++/ {
++	aliases {
++		wifi0 = &wifi0;
++	};
++};

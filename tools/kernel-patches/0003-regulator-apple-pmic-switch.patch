@@ -1,0 +1,120 @@
+--- a/drivers/regulator/apple-pmic-switch.c
++++ b/drivers/regulator/apple-pmic-switch.c
+@@ -0,0 +1,94 @@
++// SPDX-License-Identifier: GPL-2.0
++/*
++ * Simple on/off power switches inside Apple I2C PMICs (Dialog D2333 "adelyn",
++ * display PMU "chestnut"). The parent (simple-mfd-i2c) provides the regmap;
++ * each child node describes one switch:
++ *
++ *   touch-core@31f {
++ *       compatible = "apple,pmic-switch";
++ *       reg = <0x31f 1>;
++ *       apple,enable-mask = <0x01>;
++ *       regulator-name = "touch-core";
++ *   };
++ *
++ * Only the bits in apple,enable-mask are ever modified (read-modify-write),
++ * so other rails sharing the register (e.g. the LCD LDO) are left untouched.
++ * Values taken from Project Sandcastle (Corellium, 2020).
++ */
++#include <linux/module.h>
++#include <linux/of.h>
++#include <linux/platform_device.h>
++#include <linux/regmap.h>
++#include <linux/regulator/driver.h>
++#include <linux/regulator/of_regulator.h>
++
++static const struct regulator_ops apple_pmic_switch_ops = {
++	.enable		= regulator_enable_regmap,
++	.disable	= regulator_disable_regmap,
++	.is_enabled	= regulator_is_enabled_regmap,
++};
++
++static int apple_pmic_switch_probe(struct platform_device *pdev)
++{
++	struct device *dev = &pdev->dev;
++	struct device_node *np = dev->of_node;
++	struct regulator_config cfg = {};
++	struct regulator_desc *desc;
++	struct regulator_dev *rdev;
++	struct regmap *regmap;
++	u32 reg, mask, on;
++
++	regmap = dev_get_regmap(dev->parent, NULL);
++	if (!regmap)
++		return dev_err_probe(dev, -ENODEV, "no parent regmap\n");
++
++	if (of_property_read_u32_index(np, "reg", 0, &reg))
++		return dev_err_probe(dev, -EINVAL, "missing reg\n");
++	if (of_property_read_u32(np, "apple,enable-mask", &mask) || !mask)
++		return dev_err_probe(dev, -EINVAL, "missing apple,enable-mask\n");
++	if (of_property_read_u32(np, "apple,enable-value", &on))
++		on = mask;
++
++	desc = devm_kzalloc(dev, sizeof(*desc), GFP_KERNEL);
++	if (!desc)
++		return -ENOMEM;
++
++	desc->name = devm_kasprintf(dev, GFP_KERNEL, "%pOFn", np);
++	desc->of_match = np->name;
++	desc->ops = &apple_pmic_switch_ops;
++	desc->type = REGULATOR_VOLTAGE;
++	desc->owner = THIS_MODULE;
++	desc->enable_reg = reg;
++	desc->enable_mask = mask;
++	desc->enable_val = on;
++	desc->disable_val = 0;
++
++	cfg.dev = dev;
++	cfg.regmap = regmap;
++	cfg.of_node = np;
++	cfg.init_data = of_get_regulator_init_data(dev, np, desc);
++
++	rdev = devm_regulator_register(dev, desc, &cfg);
++	if (IS_ERR(rdev))
++		return dev_err_probe(dev, PTR_ERR(rdev), "failed to register\n");
++
++	return 0;
++}
++
++static const struct of_device_id apple_pmic_switch_match[] = {
++	{ .compatible = "apple,pmic-switch" },
++	{ }
++};
++MODULE_DEVICE_TABLE(of, apple_pmic_switch_match);
++
++static struct platform_driver apple_pmic_switch_driver = {
++	.driver = {
++		.name = "apple-pmic-switch",
++		.of_match_table = apple_pmic_switch_match,
++	},
++	.probe = apple_pmic_switch_probe,
++};
++module_platform_driver(apple_pmic_switch_driver);
++
++MODULE_DESCRIPTION("Power switches in Apple I2C PMICs");
++MODULE_LICENSE("GPL");
+--- a/drivers/regulator/Kconfig
++++ b/drivers/regulator/Kconfig
+@@ -1349,6 +1349,13 @@
+ 	  buck converters, 1 LDO, mute AC OFF depop function, with the general
+ 	  I2C control interface.
+ 
++config REGULATOR_APPLE_PMIC_SWITCH
++	tristate "Power switches in Apple I2C PMICs"
++	depends on MFD_SIMPLE_MFD_I2C
++	help
++	  On/off power switches inside Apple I2C PMICs (e.g. touch screen
++	  supplies on the iPhone 7).
++
+ config REGULATOR_RT5739
+ 	tristate "Richtek RT5739 Regulator"
+ 	depends on I2C
+--- a/drivers/regulator/Makefile
++++ b/drivers/regulator/Makefile
+@@ -219,3 +219,4 @@
+ obj-$(CONFIG_REGULATOR_WM8994) += wm8994-regulator.o
+ 
+ ccflags-$(CONFIG_REGULATOR_DEBUG) += -DDEBUG
++obj-$(CONFIG_REGULATOR_APPLE_PMIC_SWITCH) += apple-pmic-switch.o

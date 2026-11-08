@@ -1,0 +1,180 @@
+--- a/drivers/gpio/gpio-apple-pmic.c
++++ b/drivers/gpio/gpio-apple-pmic.c
+@@ -0,0 +1,150 @@
++// SPDX-License-Identifier: GPL-2.0-or-later
++/*
++ * GPIOs of Apple (Dialog) I2C PMICs, e.g. D2333 "adelyn" in the iPhone 7.
++ *
++ * Every GPIO has a configuration byte at <reg> + apple,gpio-offsets[n]:
++ *   bit 0     output value
++ *   bits 7:6  direction (0x00 = input, 0x80 = output)
++ * Input levels are read from a bitmap at apple,input-reg.
++ *
++ * Based on the register description in Corellium's Project Sandcastle
++ * (gpio-hx-pmu-i2c.c, GPL-2.0).
++ */
++#include <linux/gpio/driver.h>
++#include <linux/mod_devicetable.h>
++#include <linux/module.h>
++#include <linux/of.h>
++#include <linux/platform_device.h>
++#include <linux/regmap.h>
++
++#define PMIC_GPIO_OUT_VAL	0x01
++#define PMIC_GPIO_DIR_MASK	0xc0
++#define PMIC_GPIO_DIR_IN	0x00
++#define PMIC_GPIO_DIR_OUT	0x80
++
++struct apple_pmic_gpio {
++	struct gpio_chip gc;
++	struct regmap *regmap;
++	u32 base;
++	u32 input_reg;
++	u32 *offs;
++};
++
++static unsigned int apg_reg(struct apple_pmic_gpio *pg, unsigned int idx)
++{
++	return pg->base + pg->offs[idx];
++}
++
++static int apg_get(struct gpio_chip *gc, unsigned int idx)
++{
++	struct apple_pmic_gpio *pg = gpiochip_get_data(gc);
++	unsigned int val;
++	int ret;
++
++	ret = regmap_read(pg->regmap, pg->input_reg + idx / 8, &val);
++	if (ret)
++		return ret;
++	return (val >> (idx % 8)) & 1;
++}
++
++static int apg_get_direction(struct gpio_chip *gc, unsigned int idx)
++{
++	struct apple_pmic_gpio *pg = gpiochip_get_data(gc);
++	unsigned int val;
++	int ret;
++
++	ret = regmap_read(pg->regmap, apg_reg(pg, idx), &val);
++	if (ret)
++		return ret;
++	return (val & PMIC_GPIO_DIR_MASK) == PMIC_GPIO_DIR_OUT ?
++		GPIO_LINE_DIRECTION_OUT : GPIO_LINE_DIRECTION_IN;
++}
++
++static int apg_set(struct gpio_chip *gc, unsigned int idx, int value)
++{
++	struct apple_pmic_gpio *pg = gpiochip_get_data(gc);
++
++	return regmap_update_bits(pg->regmap, apg_reg(pg, idx), PMIC_GPIO_OUT_VAL,
++				  value ? PMIC_GPIO_OUT_VAL : 0);
++}
++
++static int apg_direction_input(struct gpio_chip *gc, unsigned int idx)
++{
++	struct apple_pmic_gpio *pg = gpiochip_get_data(gc);
++
++	return regmap_update_bits(pg->regmap, apg_reg(pg, idx), PMIC_GPIO_DIR_MASK,
++				  PMIC_GPIO_DIR_IN);
++}
++
++static int apg_direction_output(struct gpio_chip *gc, unsigned int idx, int value)
++{
++	struct apple_pmic_gpio *pg = gpiochip_get_data(gc);
++
++	return regmap_update_bits(pg->regmap, apg_reg(pg, idx),
++				  PMIC_GPIO_DIR_MASK | PMIC_GPIO_OUT_VAL,
++				  PMIC_GPIO_DIR_OUT | (value ? PMIC_GPIO_OUT_VAL : 0));
++}
++
++static int apple_pmic_gpio_probe(struct platform_device *pdev)
++{
++	struct device *dev = &pdev->dev;
++	struct apple_pmic_gpio *pg;
++	int n, ret;
++
++	pg = devm_kzalloc(dev, sizeof(*pg), GFP_KERNEL);
++	if (!pg)
++		return -ENOMEM;
++
++	pg->regmap = dev_get_regmap(dev->parent, NULL);
++	if (!pg->regmap)
++		return dev_err_probe(dev, -ENODEV, "parent has no regmap\n");
++
++	ret = of_property_read_u32_index(dev->of_node, "reg", 0, &pg->base);
++	if (ret)
++		return dev_err_probe(dev, ret, "missing reg\n");
++	ret = of_property_read_u32(dev->of_node, "apple,input-reg", &pg->input_reg);
++	if (ret)
++		return dev_err_probe(dev, ret, "missing apple,input-reg\n");
++
++	n = of_property_count_u32_elems(dev->of_node, "apple,gpio-offsets");
++	if (n <= 0)
++		return dev_err_probe(dev, -EINVAL, "missing apple,gpio-offsets\n");
++	pg->offs = devm_kcalloc(dev, n, sizeof(u32), GFP_KERNEL);
++	if (!pg->offs)
++		return -ENOMEM;
++	ret = of_property_read_u32_array(dev->of_node, "apple,gpio-offsets", pg->offs, n);
++	if (ret)
++		return ret;
++
++	pg->gc.label = dev_name(dev);
++	pg->gc.parent = dev;
++	pg->gc.owner = THIS_MODULE;
++	pg->gc.base = -1;
++	pg->gc.ngpio = n;
++	pg->gc.can_sleep = true;
++	pg->gc.get = apg_get;
++	pg->gc.set = apg_set;
++	pg->gc.get_direction = apg_get_direction;
++	pg->gc.direction_input = apg_direction_input;
++	pg->gc.direction_output = apg_direction_output;
++
++	return devm_gpiochip_add_data(dev, &pg->gc, pg);
++}
++
++static const struct of_device_id apple_pmic_gpio_of_match[] = {
++	{ .compatible = "apple,pmic-gpio" },
++	{ }
++};
++MODULE_DEVICE_TABLE(of, apple_pmic_gpio_of_match);
++
++static struct platform_driver apple_pmic_gpio_driver = {
++	.driver = {
++		.name = "apple-pmic-gpio",
++		.of_match_table = apple_pmic_gpio_of_match,
++	},
++	.probe = apple_pmic_gpio_probe,
++};
++module_platform_driver(apple_pmic_gpio_driver);
++
++MODULE_DESCRIPTION("Apple I2C PMIC GPIO driver");
++MODULE_LICENSE("GPL");
+--- a/drivers/gpio/Kconfig
++++ b/drivers/gpio/Kconfig
+@@ -1289,6 +1289,14 @@
+ 	  includes reads of pushbuttons and DIP switches as well
+ 	  as writes to LEDs.
+ 
++config GPIO_APPLE_PMIC
++	tristate "Apple I2C PMIC GPIOs"
++	depends on MFD_SIMPLE_MFD_I2C || COMPILE_TEST
++	select REGMAP
++	help
++	  GPIOs of the Dialog PMICs in older Apple devices (e.g. D2333 in the
++	  iPhone 7), used for Wi-Fi/Bluetooth power and wake lines.
++
+ config GPIO_ARIZONA
+ 	tristate "Wolfson Microelectronics Arizona class devices"
+ 	depends on MFD_ARIZONA
+--- a/drivers/gpio/Makefile
++++ b/drivers/gpio/Makefile
+@@ -38,6 +38,7 @@
+ obj-$(CONFIG_GPIO_AMD8111)		+= gpio-amd8111.o
+ obj-$(CONFIG_GPIO_AMD_FCH)		+= gpio-amd-fch.o
+ obj-$(CONFIG_GPIO_AMDPT)		+= gpio-amdpt.o
++obj-$(CONFIG_GPIO_APPLE_PMIC)	+= gpio-apple-pmic.o
+ obj-$(CONFIG_GPIO_ARIZONA)		+= gpio-arizona.o
+ obj-$(CONFIG_GPIO_ASPEED)		+= gpio-aspeed.o
+ obj-$(CONFIG_GPIO_ASPEED_SGPIO)		+= gpio-aspeed-sgpio.o

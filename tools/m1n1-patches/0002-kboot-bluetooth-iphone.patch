@@ -1,0 +1,16 @@
+--- a/src/kboot.c
++++ b/src/kboot.c
+@@ -836,6 +836,13 @@
+     int ret;
+     int anode = adt_path_offset(adt, "/arm-io/bluetooth");
+ 
++    /* iPhones (e.g. iPhone 7, A10): Bluetooth sits below a UART */
++    for (int i = 0; anode < 0 && i < 8; i++) {
++        char p[32];
++        snprintf(p, sizeof(p), "/arm-io/uart%d/bluetooth", i);
++        anode = adt_path_offset(adt, p);
++    }
++
+     if (anode < 0) {
+         /*
+          * t8012-based system does not have bluetooth, and on

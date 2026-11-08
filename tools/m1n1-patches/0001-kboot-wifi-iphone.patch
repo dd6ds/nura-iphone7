@@ -1,0 +1,59 @@
+diff --git a/src/kboot.c b/src/kboot.c
+index 2840651..34a62b3 100644
+--- a/src/kboot.c
++++ b/src/kboot.c
+@@ -1000,6 +1000,13 @@ static int dt_set_wifi(void)
+ {
+     int anode = adt_path_offset(adt, "/arm-io/wlan");
+ 
++    /* iPhones (e.g. iPhone 7, A10): WLAN node sits below the Bluetooth UART */
++    for (int i = 0; anode < 0 && i < 8; i++) {
++        char p[32];
++        snprintf(p, sizeof(p), "/arm-io/uart%d/wlan", i);
++        anode = adt_path_offset(adt, p);
++    }
++
+     if (anode < 0) {
+         /*
+          * t8012-based system does not have wifi, and on some other
+@@ -1009,10 +1016,6 @@ static int dt_set_wifi(void)
+         return 0;
+     }
+ 
+-    uint8_t info[16];
+-    if (ADT_GETPROP_ARRAY(adt, anode, "wifi-antenna-sku-info", info) < 0)
+-        bail("ADT: Failed to get wifi-antenna-sku-info\n");
+-
+     const char *path = fdt_get_alias(dt, "wifi0");
+     if (path == NULL)
+         return 0;
+@@ -1021,9 +1024,26 @@ static int dt_set_wifi(void)
+     if (node < 0)
+         return 0;
+ 
+-    char antenna[8];
+-    memcpy(antenna, &info[8], sizeof(antenna));
+-    fdt_setprop_string(dt, node, "apple,antenna-sku", antenna);
++    uint8_t info[16];
++    if (ADT_GETPROP_ARRAY(adt, anode, "wifi-antenna-sku-info", info) >= 0) {
++        char antenna[8];
++        memcpy(antenna, &info[8], sizeof(antenna));
++        fdt_setprop_string(dt, node, "apple,antenna-sku", antenna);
++    } else {
++        /* not present on older iPhones; brcmfmac copes without it */
++        printf("ADT: no wifi-antenna-sku-info, skipping apple,antenna-sku\n");
++    }
++
++    /* brcm,board-type = "apple,<module-instance>" unless the DT already has one */
++    if (!fdt_getprop(dt, node, "brcm,board-type", NULL)) {
++        u32 mlen;
++        const char *mi = adt_getprop(adt, anode, "module-instance", &mlen);
++        if (mi && mlen) {
++            char bt[48];
++            snprintf(bt, sizeof(bt), "apple,%.*s", (int)strnlen(mi, mlen), mi);
++            fdt_setprop_string(dt, node, "brcm,board-type", bt);
++        }
++    }
+ 
+     u32 len;
+     const u8 *cal_blob = adt_getprop(adt, anode, "wifi-calibration-msf", &len);

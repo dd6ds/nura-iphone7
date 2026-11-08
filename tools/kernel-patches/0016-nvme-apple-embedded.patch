@@ -1,0 +1,292 @@
+--- a/drivers/nvme/host/pci.c
++++ b/drivers/nvme/host/pci.c
+@@ -19,6 +19,8 @@
+ #include <linux/module.h>
+ #include <linux/mutex.h>
+ #include <linux/nodemask.h>
++#include <linux/of.h>
++#include <linux/pcie-apple-t8010.h>
+ #include <linux/once.h>
+ #include <linux/pci.h>
+ #include <linux/suspend.h>
+@@ -293,6 +295,10 @@
+  */
+ struct nvme_dev {
+ 	struct nvme_queue *queues;
++	u32 apple_scratch_iova, apple_scratch_size;	/* NVME_QUIRK_APPLE_EMBEDDED */
++	bool apple_nvmmu;
++	struct scatterlist *apple_sg;		/* [APPLE_NVMMU_TAGS][APPLE_SG_ENTS] */
++	int apple_nents[APPLE_NVMMU_TAGS];
+ 	struct blk_mq_tag_set tagset;
+ 	struct blk_mq_tag_set admin_tagset;
+ 	u32 __iomem *dbs;
+@@ -416,6 +422,9 @@
+ 	/* Metadata contains MMIO memory */
+ 	IOD_META_MMIO		= 1U << 6,
+ 
++	/* Daten über die Apple-NVMMU abgebildet */
++	IOD_APPLE_NVMMU		= 1U << 7,
++
+ 	/* Metadata using non-coalesced MPTR */
+ 	IOD_SINGLE_META_SEGMENT	= 1U << 7,
+ };
+@@ -924,6 +933,9 @@
+ 			      iod->meta_descriptor, iod->meta_dma);
+ }
+ 
++static blk_status_t nvme_apple_map_data(struct nvme_dev *dev, struct request *req);
++static void nvme_apple_unmap_data(struct nvme_dev *dev, struct request *req);
++
+ static void nvme_unmap_data(struct request *req)
+ {
+ 	enum pci_p2pdma_map_type map = PCI_P2PDMA_MAP_NONE;
+@@ -932,6 +944,11 @@
+ 	struct device *dma_dev = nvmeq->dev->dev;
+ 	unsigned int attrs = 0;
+ 
++	if (iod->flags & IOD_APPLE_NVMMU) {
++		nvme_apple_unmap_data(nvmeq->dev, req);
++		return;
++	}
++
+ 	if (iod->flags & IOD_SINGLE_SEGMENT) {
+ 		static_assert(offsetof(union nvme_data_ptr, prp1) ==
+ 				offsetof(union nvme_data_ptr, sgl.addr));
+@@ -1246,6 +1263,9 @@
+ 	struct blk_dma_iter iter;
+ 	blk_status_t ret;
+ 
++	if (dev->apple_nvmmu)
++		return nvme_apple_map_data(dev, req);
++
+ 	/*
+ 	 * Try to skip the DMA iterator for single segment requests, as that
+ 	 * significantly improves performances for small I/O sizes.
+@@ -2324,6 +2344,151 @@
+ 	return 0;
+ }
+ 
++/* ---- Apple embedded NVMe (nach Corellium Sandcastle nvme/host/hx.c) ---- */
++#define APPLE_EMB_INIT			0x1800
++#define APPLE_EMB_SCRATCH_SIZE_REQ	0x1808
++#define APPLE_EMB_SCRATCH_ALIGN_REQ	0x180c
++#define APPLE_EMB_SCRATCH_BASE_LO	0x1810
++#define APPLE_EMB_SCRATCH_BASE_HI	0x1814
++#define APPLE_EMB_SCRATCH_SIZE		0x1818
++#define APPLE_EMB_CORE_MASK		0x1824
++#define APPLE_EMB_LOG_SIZE		0x1828
++#define APPLE_EMB_BOOT_STATE		0x1b18
++
++static bool apple_nvmmu = true;
++module_param(apple_nvmmu, bool, 0444);
++MODULE_PARM_DESC(apple_nvmmu, "Apple embedded NVMe: Daten über die NVMMU (wie iOS)");
++
++#define APPLE_SG_ENTS	40	/* >= max_hw_sectors(128 KiB)/16 KiB + Reserve */
++
++static blk_status_t nvme_apple_map_data(struct nvme_dev *dev, struct request *req)
++{
++	struct nvme_iod *iod = blk_mq_rq_to_pdu(req);
++	struct pci_dev *pdev = to_pci_dev(dev->dev);
++	unsigned int tag = req->tag, i, npages = 0;
++	struct scatterlist *sg, *sgl;
++	u64 pages[64], iova, offs = 0;	/* 128 KiB = 32 Seiten + Versatz */
++	int mapped, nents, ret;
++
++	if (tag >= APPLE_NVMMU_TAGS)
++		return BLK_STS_RESOURCE;
++	sgl = dev->apple_sg + tag * APPLE_SG_ENTS;
++	sg_init_table(sgl, APPLE_SG_ENTS);
++	mapped = blk_rq_map_sg(req, sgl);
++	if (!mapped)
++		return BLK_STS_IOERR;
++	nents = dma_map_sg(dev->dev, sgl, mapped, rq_dma_dir(req));
++	if (!nents)
++		return BLK_STS_RESOURCE;
++
++	for_each_sg(sgl, sg, nents, i) {
++		u64 pa = apple_t8010_bus_to_phys(pdev, sg_dma_address(sg));
++		u64 len = sg_dma_len(sg);
++
++		if (i == 0) {
++			offs = pa & (APPLE_NVMMU_PAGE - 1);
++			pa -= offs;
++			len += offs;
++		} else if (pa & (APPLE_NVMMU_PAGE - 1)) {
++			goto bad;
++		}
++		if (i != nents - 1 && (len & (APPLE_NVMMU_PAGE - 1)))
++			goto bad;
++		while (len) {
++			if (npages >= ARRAY_SIZE(pages))
++				goto bad;
++			pages[npages++] = pa;
++			pa += APPLE_NVMMU_PAGE;
++			len = len > APPLE_NVMMU_PAGE ? len - APPLE_NVMMU_PAGE : 0;
++		}
++	}
++
++	ret = apple_t8010_nvmmu_map(pdev, tag, pages, npages, &iova);
++	if (ret)
++		goto bad;
++	dev->apple_nents[tag] = mapped;
++	iod->flags |= IOD_APPLE_NVMMU;
++	iod->total_len = blk_rq_payload_bytes(req);
++	iod->cmd.common.flags = 1 << 5;	/* "flat DMA" über die NVMMU */
++	iod->cmd.common.dptr.prp1 = cpu_to_le64(iova + offs);
++	iod->cmd.common.dptr.prp2 = 0;
++	return BLK_STS_OK;
++bad:
++	dev_err_ratelimited(dev->dev, "NVMMU: Anfrage nicht abbildbar (%d Segmente, %u Seiten)\n",
++			    nents, npages);
++	dma_unmap_sg(dev->dev, sgl, mapped, rq_dma_dir(req));
++	return BLK_STS_IOERR;
++}
++
++static void nvme_apple_unmap_data(struct nvme_dev *dev, struct request *req)
++{
++	struct nvme_iod *iod = blk_mq_rq_to_pdu(req);
++	unsigned int tag = req->tag;
++
++	apple_t8010_nvmmu_unmap(to_pci_dev(dev->dev), tag);
++	dma_unmap_sg(dev->dev, dev->apple_sg + tag * APPLE_SG_ENTS,
++		     dev->apple_nents[tag], rq_dma_dir(req));
++	iod->flags &= ~IOD_APPLE_NVMMU;
++}
++
++static int nvme_apple_emb_preinit(struct nvme_dev *dev)
++{
++	struct pci_dev *pdev = to_pci_dev(dev->dev);
++	u32 req, align, sc[2];
++
++	pci_write_config_byte(pdev, PCI_LATENCY_TIMER, 0x40);
++	pci_write_config_dword(pdev, 0x17c, 0x10081008);	/* LTR max (no-)snoop */
++	pci_write_config_dword(pdev, 0x18c, 0x00000000);	/* L1SS ctl2 */
++	pci_write_config_dword(pdev, 0x188, 0x40550000);	/* L1SS ctl1 */
++
++	req = readl(dev->bar + APPLE_EMB_SCRATCH_SIZE_REQ);
++	align = readl(dev->bar + APPLE_EMB_SCRATCH_ALIGN_REQ);
++	dev_info(dev->ctrl.device,
++		 "Apple-NVMe: boot-state %#x, Scratch %#x/%#x, Kerne %#x, Log %#x, CSTS %#x\n",
++		 readl(dev->bar + APPLE_EMB_BOOT_STATE), req, align,
++		 readl(dev->bar + APPLE_EMB_CORE_MASK),
++		 readl(dev->bar + APPLE_EMB_LOG_SIZE), readl(dev->bar + NVME_REG_CSTS));
++
++	if (!pdev->dev.of_node ||
++	    of_property_read_u32_array(pdev->dev.of_node, "apple,nvme-scratch", sc, 2)) {
++		dev_err(dev->ctrl.device, "apple,nvme-scratch fehlt im DT\n");
++		return -ENODEV;
++	}
++	if (sc[1] < req || (align && (sc[0] & (align - 1)))) {
++		dev_err(dev->ctrl.device, "Scratch %#x+%#x passt nicht (Bedarf %#x/%#x)\n",
++			sc[0], sc[1], req, align);
++		return -ENOSPC;
++	}
++	dev->apple_scratch_iova = sc[0];
++	dev->apple_scratch_size = sc[1];
++
++	dev->apple_nvmmu = apple_nvmmu && apple_t8010_nvmmu_available(pdev);
++	if (dev->apple_nvmmu) {
++		dev->apple_sg = devm_kcalloc(dev->dev, APPLE_NVMMU_TAGS * APPLE_SG_ENTS,
++					     sizeof(*dev->apple_sg), GFP_KERNEL);
++		if (!dev->apple_sg)
++			return -ENOMEM;
++		/*
++		 * Befehls-Tag = NVMMU-Tag. Der Controller bedient nur Tags < 36 zuverlässig
++		 * (darüber fehlen die Interrupts); Sandcastle nutzt ebenso 36. Mit SHARED_TAGS
++		 * belegt Admin 0..31, I/O bekommt 32..35.
++		 */
++		dev->q_depth = min_t(u32, dev->q_depth, 36);
++		dev->ctrl.sqsize = dev->q_depth - 1;
++	}
++	dev_info(dev->ctrl.device, "Apple-NVMe: Daten über %s, Warteschlange %u\n",
++		 dev->apple_nvmmu ? "NVMMU" : "PRP", dev->q_depth);
++	return 0;
++}
++
++static void nvme_apple_emb_preenable(struct nvme_dev *dev)
++{
++	writel(0, dev->bar + APPLE_EMB_INIT);	/* regular */
++	writel(dev->apple_scratch_iova, dev->bar + APPLE_EMB_SCRATCH_BASE_LO);
++	writel(0, dev->bar + APPLE_EMB_SCRATCH_BASE_HI);
++	writel(dev->apple_scratch_size, dev->bar + APPLE_EMB_SCRATCH_SIZE);
++}
++
+ static int nvme_pci_configure_admin_queue(struct nvme_dev *dev)
+ {
+ 	int result;
+@@ -2386,6 +2551,9 @@
+ 	lo_hi_writeq(nvmeq->sq_dma_addr, dev->bar + NVME_REG_ASQ);
+ 	lo_hi_writeq(nvmeq->cq_dma_addr, dev->bar + NVME_REG_ACQ);
+ 
++	if (dev->ctrl.quirks & NVME_QUIRK_APPLE_EMBEDDED)
++		nvme_apple_emb_preenable(dev);
++
+ 	result = nvme_enable_ctrl(&dev->ctrl);
+ 	if (result)
+ 		return result;
+@@ -3251,6 +3419,16 @@
+ 	}
+ 	dev->ctrl.sqsize = dev->q_depth - 1; /* 0's based queue depth */
+ 
++	if (dev->ctrl.quirks & NVME_QUIRK_APPLE_EMBEDDED) {
++		result = nvme_apple_emb_preinit(dev);
++		if (result)
++			goto disable;
++		/* Sandcastle: max. 256 Sektoren je Befehl */
++		dev->ctrl.max_hw_sectors = min_t(u32, dev->ctrl.max_hw_sectors, 256);
++		if (dev->apple_nvmmu)
++			dev->ctrl.max_segments = min_t(u32, dev->ctrl.max_segments, APPLE_SG_ENTS);
++	}
++
+ 	nvme_map_cmb(dev);
+ 
+ 	pci_save_state(pdev);
+@@ -4269,6 +4447,12 @@
+ 		 */
+ 		.driver_data = NVME_QUIRK_SINGLE_VECTOR |
+ 				NVME_QUIRK_QDEPTH_ONE },
++	{ PCI_DEVICE(PCI_VENDOR_ID_APPLE, 0x2002),	/* iPhone 7 (A10) S3E */
++		.driver_data = NVME_QUIRK_APPLE_EMBEDDED |
++				NVME_QUIRK_SINGLE_VECTOR |
++				NVME_QUIRK_SHARED_TAGS |
++				NVME_QUIRK_SKIP_CID_GEN |
++				NVME_QUIRK_IDENTIFY_CNS, },
+ 	{ PCI_DEVICE(PCI_VENDOR_ID_APPLE, 0x2003) },
+ 	{ PCI_DEVICE(PCI_VENDOR_ID_APPLE, 0x2005),
+ 		.driver_data = NVME_QUIRK_SINGLE_VECTOR |
+--- a/drivers/nvme/host/nvme.h
++++ b/drivers/nvme/host/nvme.h
+@@ -178,6 +178,12 @@
+ 	 * Align dma pool segment size to 512 bytes
+ 	 */
+ 	NVME_QUIRK_DMAPOOL_ALIGN_512		= (1 << 22),
++
++	/*
++	 * Apple embedded NVMe (iPhone/iPad, ANS2/S3E): firmware scratch area
++	 * must be handed over before CC.EN
++	 */
++	NVME_QUIRK_APPLE_EMBEDDED		= (1 << 23),
+ };
+ 
+ static inline char *nvme_quirk_name(enum nvme_quirks q)
+@@ -229,6 +235,8 @@
+ 		return "broken_msi";
+ 	case NVME_QUIRK_DMAPOOL_ALIGN_512:
+ 		return "dmapool_align_512";
++	case NVME_QUIRK_APPLE_EMBEDDED:
++		return "apple_embedded";
+ 	}
+ 
+ 	return "unknown";
+--- a/drivers/nvme/host/core.c
++++ b/drivers/nvme/host/core.c
+@@ -3590,6 +3590,9 @@
+ 		goto out_free;
+ 
+ 	ctrl->sgls = le32_to_cpu(id->sgls);
++	/* Apple embedded NVMe meldet SGL, stürzt bei SGL-Datenzeigern aber ab */
++	if (ctrl->quirks & NVME_QUIRK_APPLE_EMBEDDED)
++		ctrl->sgls = 0;
+ 	ctrl->kas = le16_to_cpu(id->kas);
+ 	ctrl->max_namespaces = le32_to_cpu(id->mnan);
+ 	ctrl->ctratt = le32_to_cpu(id->ctratt);

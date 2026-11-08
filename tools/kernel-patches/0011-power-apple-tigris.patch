@@ -1,0 +1,831 @@
+--- a/drivers/power/supply/apple-tigris.c
++++ b/drivers/power/supply/apple-tigris.c
+@@ -0,0 +1,791 @@
++// SPDX-License-Identifier: GPL-2.0
++/*
++ * Apple iPhone 7 (A10) Akku/Ladung:
++ *   - "Tigris" SN2400-Lader an I2C (USB-Eingangsstrom, HDQ-Mux)
++ *   - TI bq27545 Gasgauge per HDQ über UART5 (serdev)
++ *
++ * Portiert von den Sandcastle-Treibern (Copyright (C) 2020 Corellium LLC,
++ * sn2400-charger.c / bq27545-battery-hdquart.c) auf Linux 7.0.
++ */
++
++#include <linux/completion.h>
++#include <linux/delay.h>
++#include <linux/devm-helpers.h>
++#include <linux/i2c.h>
++#include <linux/module.h>
++#include <linux/mutex.h>
++#include <linux/of.h>
++#include <linux/power_supply.h>
++#include <linux/serdev.h>
++#include <linux/slab.h>
++#include <linux/spinlock.h>
++#include <linux/workqueue.h>
++
++/* ---------------------------------------------------------------- Tigris */
++
++#define REG_STAT		0x07
++#define  REG_STAT_VBUS		BIT(5)
++#define  REG_STAT_CHARGING	BIT(7)
++#define REG_IBUSLIMIT		0x09
++#define REG_ICHGLIMIT		0x0D
++#define REG_ICHG		0x0E
++#define REG_VCHG		0x0F
++#define REG_CTRL		0x10
++#define  REG_CTRL_SPRDSPCT	(3 << 0)
++#define  REG_CTRL_RSVD		BIT(2)
++#define  REG_CTRL_OFF		BIT(3)
++#define REG_ADCCTL		0x11
++#define  REG_ADCCTL_CH_MASK	(7 << 1)
++#define  REG_ADCCTL_CH_VBUS	(0 << 1)
++#define  REG_ADCCTL_CH_IBUS	(1 << 1)
++#define  REG_ADCCTL_CH_VBAT	(5 << 1)
++#define  REG_ADCCTL_START	BIT(4)
++#define REG_ADCDATA		0x12
++#define REG_HDQ			0x1D
++#define  REG_HDQ_FORCE_TIGRIS	BIT(1)
++#define  REG_HDQ_REQ_AP		BIT(2)
++#define  REG_HDQ_ACK_AP		BIT(5)
++
++#define CHG_POLL_INIT_MS	500
++#define CHG_POLL_FAST_MS	300
++#define CHG_POLL_MS		2000
++
++#define FB_INIT			-1
++#define FB_IDLE			0
++#define FB_NOLOAD		1
++#define FB_PROBE		2
++#define FB_DEBOUNCE		3
++#define FB_SETTLE		4
++
++#define MAX_DROOP_MV		400
++#define IBUS_PROBE_INIT_MA	300
++#define IBUS_PROBE_STEP_MA	25
++
++static unsigned int ibus_max_ma = 900;
++module_param(ibus_max_ma, uint, 0644);
++MODULE_PARM_DESC(ibus_max_ma, "Obergrenze USB-Eingangsstrom in mA (90..2000)");
++
++static unsigned int vchg_mv;
++module_param(vchg_mv, uint, 0644);
++MODULE_PARM_DESC(vchg_mv, "Ladeschlussspannung in mV erzwingen (0 = nicht anfassen, 4000..4400)");
++
++struct tigris_chg {
++	struct device *dev;
++	struct i2c_client *client;
++	struct mutex xfer_lock;
++	struct mutex hdq_lock;		/* HDQ-Leitung gehört während eines Gauge-Zyklus dem AP */
++	struct power_supply *usb;
++	struct power_supply *batt;	/* gesetzt vom Gauge-Treiber */
++	struct delayed_work work;
++
++	u32 dt_charge_current;
++	u8 stat;
++	int usb_voltage, usb_current, usb_current_max;
++	int batt_voltage, batt_charge_voltage, batt_charge_current;
++	int fb_state, vbus_noload, ibus_target;
++};
++
++/* Einzelbyte-Zugriffe: der Apple-I2C-Controller kann kein SMBus-I2C-Block */
++static int tigris_read(struct tigris_chg *c, u8 reg, u8 *data, u8 len)
++{
++	int i, ret = 0;
++
++	mutex_lock(&c->xfer_lock);
++	for (i = 0; i < len; i++) {
++		ret = i2c_smbus_read_byte_data(c->client, reg + i);
++		if (ret < 0)
++			break;
++		data[i] = ret;
++		ret = 0;
++	}
++	mutex_unlock(&c->xfer_lock);
++	return ret;
++}
++
++static int tigris_write(struct tigris_chg *c, u8 reg, u8 val)
++{
++	int ret;
++
++	mutex_lock(&c->xfer_lock);
++	ret = i2c_smbus_write_byte_data(c->client, reg, val);
++	mutex_unlock(&c->xfer_lock);
++	return ret;
++}
++
++static int tigris_read_adc(struct tigris_chg *c, u8 chan, int *mv_ma)
++{
++	int ret, retry = 20;
++	u8 val;
++
++	ret = tigris_write(c, REG_ADCCTL, (chan & REG_ADCCTL_CH_MASK) | REG_ADCCTL_START);
++	if (ret)
++		return ret;
++	for (;;) {
++		ret = tigris_read(c, REG_ADCCTL, &val, 1);
++		if (ret)
++			return ret;
++		if (!(val & REG_ADCCTL_START))
++			break;
++		if (!retry--)
++			return -ETIMEDOUT;
++		usleep_range(4000, 6000);
++	}
++	ret = tigris_read(c, REG_ADCDATA, &val, 1);
++	if (ret)
++		return ret;
++
++	switch (chan) {
++	case REG_ADCCTL_CH_VBUS:
++		*mv_ma = 25 * val;
++		break;
++	case REG_ADCCTL_CH_IBUS:
++		*mv_ma = 10 * val;
++		break;
++	default:
++		*mv_ma = 2500 + 10 * val;
++		break;
++	}
++	return 0;
++}
++
++static int tigris_set_ibus(struct tigris_chg *c, int ma)
++{
++	int max = clamp_t(int, ibus_max_ma, 90, 2000);
++	int r1, r2;
++	u8 ctrl;
++
++	if (ma && ma < 90)
++		ma = 90;
++	if (ma > max)
++		ma = max;
++	c->ibus_target = ma;
++
++	ctrl = REG_CTRL_RSVD | (ma ? REG_CTRL_SPRDSPCT : REG_CTRL_OFF);
++	r1 = tigris_write(c, REG_CTRL, ctrl);
++	r2 = tigris_write(c, REG_IBUSLIMIT, ma ? (ma - 90) / 10 : 0);
++	if (r1 || r2)
++		dev_warn(c->dev, "Eingangsstrom setzen fehlgeschlagen: %d/%d\n", r1, r2);
++	return r1 ?: r2;
++}
++
++/* route=1: HDQ zum AP holen; route=0: an Tigris zurückgeben */
++static int tigris_hdq_route(struct tigris_chg *c, bool to_ap)
++{
++	int ret, timeout = 100;
++	u8 v;
++
++	ret = tigris_read(c, REG_STAT, &v, 1);
++	if (ret)
++		return ret;
++	if ((v & REG_STAT_CHARGING) && !to_ap)
++		return tigris_write(c, REG_HDQ, 0);
++
++	ret = tigris_write(c, REG_HDQ, REG_HDQ_REQ_AP);
++	if (ret)
++		return ret;
++	for (;;) {
++		ret = tigris_read(c, REG_HDQ, &v, 1);
++		if (ret)
++			return ret;
++		if (v & REG_HDQ_ACK_AP)
++			break;
++		if (!--timeout) {
++			dev_err(c->dev, "HDQ-Umschaltung (%d) Timeout\n", to_ap);
++			return -ETIMEDOUT;
++		}
++		msleep(10);
++	}
++	if (!to_ap)
++		return tigris_write(c, REG_HDQ, REG_HDQ_REQ_AP | REG_HDQ_FORCE_TIGRIS);
++	return 0;
++}
++
++static void tigris_work(struct work_struct *work)
++{
++	struct tigris_chg *c = container_of(work, struct tigris_chg, work.work);
++	u8 prev = c->stat, lim, regs[4];
++	bool fast = false;
++
++	if (tigris_read(c, REG_STAT, &c->stat, 1))
++		dev_warn_ratelimited(c->dev, "STAT lesen fehlgeschlagen\n");
++	tigris_read_adc(c, REG_ADCCTL_CH_VBUS, &c->usb_voltage);
++	tigris_read_adc(c, REG_ADCCTL_CH_IBUS, &c->usb_current);
++	tigris_read_adc(c, REG_ADCCTL_CH_VBAT, &c->batt_voltage);
++
++	if (!tigris_read(c, REG_IBUSLIMIT, &lim, 1) &&
++	    !tigris_read(c, REG_ICHGLIMIT, regs, sizeof(regs))) {
++		c->usb_current_max = (regs[REG_CTRL - REG_ICHGLIMIT] & REG_CTRL_OFF) ?
++				     0 : 10 * lim + 90;
++		c->batt_charge_current = 10 * regs[REG_ICHG - REG_ICHGLIMIT];
++		c->batt_charge_voltage = 10 * regs[REG_VCHG - REG_ICHGLIMIT] + 3000;
++	}
++
++	/*
++	 * Der Tigris setzt IBUSLIMIT gelegentlich selbst auf 0 (= 90 mA) zurück.
++	 * Dann bleibt der Akku am Kabel bei ~100 mA stehen und entlädt sich.
++	 * Abweichung vom Sollwert erkennen und neu schreiben.
++	 */
++	/* Register hat 10-mA-Raster: Sollwert genauso runden wie beim Schreiben */
++	if ((c->stat & REG_STAT_VBUS) && c->fb_state >= FB_PROBE && c->ibus_target &&
++	    c->usb_current_max != (c->ibus_target - 90) / 10 * 10 + 90) {
++		dev_info_ratelimited(c->dev, "Eingangsstrom-Limit zurückgesetzt (%d statt %d mA), setze neu\n",
++				     c->usb_current_max, c->ibus_target);
++		tigris_set_ibus(c, c->ibus_target);
++		c->usb_current_max = c->ibus_target;
++		if (c->fb_state == FB_SETTLE)
++			c->fb_state = FB_PROBE;
++		fast = true;
++	}
++
++	if (vchg_mv >= 4000 && vchg_mv <= 4400 && (c->stat & REG_STAT_VBUS) &&
++	    c->batt_charge_voltage != (int)(vchg_mv - 3000) / 10 * 10 + 3000) {
++		dev_info_ratelimited(c->dev, "Ladeschlussspannung %d -> %u mV\n",
++				     c->batt_charge_voltage, vchg_mv);
++		tigris_write(c, REG_VCHG, (vchg_mv - 3000) / 10);
++	}
++
++	if (((prev ^ c->stat) & REG_STAT_VBUS) || c->fb_state == FB_INIT) {
++		c->fb_state = (c->stat & REG_STAT_VBUS) ? FB_NOLOAD : FB_IDLE;
++		tigris_set_ibus(c, 0);
++	} else {
++		switch (c->fb_state) {
++		case FB_NOLOAD:
++			c->vbus_noload = c->usb_voltage;
++			mutex_lock(&c->hdq_lock);
++			tigris_hdq_route(c, false);
++			mutex_unlock(&c->hdq_lock);
++			tigris_set_ibus(c, IBUS_PROBE_INIT_MA);
++			c->fb_state = FB_PROBE;
++			fast = true;
++			break;
++		case FB_PROBE:
++			/* Strom läuft am Limit an -> weiter hochtasten */
++			if (c->vbus_noload - c->usb_voltage > MAX_DROOP_MV) {
++				c->fb_state = FB_DEBOUNCE;
++				fast = true;
++			} else if (c->usb_current + 3 * IBUS_PROBE_STEP_MA / 2 >= c->ibus_target &&
++				   c->ibus_target < (int)ibus_max_ma) {
++				tigris_set_ibus(c, c->ibus_target + IBUS_PROBE_STEP_MA);
++				fast = true;
++			}
++			break;
++		case FB_DEBOUNCE:
++			if (c->vbus_noload - c->usb_voltage > MAX_DROOP_MV) {
++				tigris_set_ibus(c, c->ibus_target - IBUS_PROBE_STEP_MA);
++				c->fb_state = FB_SETTLE;
++			} else {
++				c->fb_state = FB_PROBE;
++			}
++			fast = true;
++			break;
++		}
++	}
++
++	power_supply_changed(c->usb);
++	if ((prev ^ c->stat) & (REG_STAT_VBUS | REG_STAT_CHARGING) && c->batt)
++		power_supply_changed(c->batt);
++
++	if (c->fb_state == FB_NOLOAD)
++		fast = true;
++	schedule_delayed_work(&c->work,
++			      msecs_to_jiffies(fast ? CHG_POLL_FAST_MS : CHG_POLL_MS));
++}
++
++static const enum power_supply_property tigris_usb_props[] = {
++	POWER_SUPPLY_PROP_ONLINE,
++	POWER_SUPPLY_PROP_VOLTAGE_NOW,
++	POWER_SUPPLY_PROP_CURRENT_NOW,
++	POWER_SUPPLY_PROP_INPUT_CURRENT_LIMIT,
++};
++
++static int tigris_usb_get_property(struct power_supply *psy,
++				   enum power_supply_property psp,
++				   union power_supply_propval *val)
++{
++	struct tigris_chg *c = power_supply_get_drvdata(psy);
++
++	switch (psp) {
++	case POWER_SUPPLY_PROP_ONLINE:
++		val->intval = !!(c->stat & REG_STAT_VBUS);
++		break;
++	case POWER_SUPPLY_PROP_VOLTAGE_NOW:
++		val->intval = c->usb_voltage * 1000;
++		break;
++	case POWER_SUPPLY_PROP_CURRENT_NOW:
++		val->intval = c->usb_current * 1000;
++		break;
++	case POWER_SUPPLY_PROP_INPUT_CURRENT_LIMIT:
++		val->intval = c->usb_current_max * 1000;
++		break;
++	default:
++		return -EINVAL;
++	}
++	return 0;
++}
++
++static const struct power_supply_desc tigris_usb_desc = {
++	.name = "usb",
++	.type = POWER_SUPPLY_TYPE_USB,
++	.properties = tigris_usb_props,
++	.num_properties = ARRAY_SIZE(tigris_usb_props),
++	.get_property = tigris_usb_get_property,
++};
++
++static char *tigris_supplied_to[] = { "battery" };
++
++static int tigris_probe(struct i2c_client *cl)
++{
++	struct power_supply_config cfg = {};
++	struct tigris_chg *c;
++	int ret;
++
++	if (!i2c_check_functionality(cl->adapter, I2C_FUNC_SMBUS_BYTE_DATA))
++		return -EIO;
++
++	c = devm_kzalloc(&cl->dev, sizeof(*c), GFP_KERNEL);
++	if (!c)
++		return -ENOMEM;
++	c->client = cl;
++	c->dev = &cl->dev;
++	mutex_init(&c->xfer_lock);
++	mutex_init(&c->hdq_lock);
++
++	if (of_property_read_u32(cl->dev.of_node, "charge-current", &c->dt_charge_current))
++		return dev_err_probe(c->dev, -EINVAL, "'charge-current' fehlt\n");
++
++	ret = tigris_write(c, REG_ICHGLIMIT, c->dt_charge_current / 10);
++	if (!ret)
++		ret = tigris_read(c, REG_STAT, &c->stat, 1);
++	if (ret)
++		return dev_err_probe(c->dev, ret, "I2C-Kommunikation fehlgeschlagen\n");
++
++	cfg.drv_data = c;
++	cfg.fwnode = dev_fwnode(&cl->dev);
++	cfg.supplied_to = tigris_supplied_to;
++	cfg.num_supplicants = ARRAY_SIZE(tigris_supplied_to);
++	c->usb = devm_power_supply_register(c->dev, &tigris_usb_desc, &cfg);
++	if (IS_ERR(c->usb))
++		return dev_err_probe(c->dev, PTR_ERR(c->usb), "usb-psy\n");
++
++	c->fb_state = FB_INIT;
++	ret = devm_delayed_work_autocancel(c->dev, &c->work, tigris_work);
++	if (ret)
++		return ret;
++	i2c_set_clientdata(cl, c);
++	schedule_delayed_work(&c->work, msecs_to_jiffies(CHG_POLL_INIT_MS));
++	return 0;
++}
++
++static const struct of_device_id tigris_of_match[] = {
++	{ .compatible = "apple,tigris-charger" },
++	{ }
++};
++MODULE_DEVICE_TABLE(of, tigris_of_match);
++
++static struct i2c_driver tigris_driver = {
++	.driver = {
++		.name = "apple-tigris",
++		.suppress_bind_attrs = true,
++		.of_match_table = tigris_of_match,
++	},
++	.probe = tigris_probe,
++};
++
++/* ------------------------------------------------- bq27545 über HDQ-UART */
++
++#define GG_POLL_INIT_MS		1500
++#define GG_POLL_MS		5000
++#define GG_TIMEOUT_MS		500
++#define GG_MSG_MAX		8
++
++#define GG_Temperature		0x06
++#define GG_Voltage		0x08
++#define GG_Flags		0x0a
++#define GG_RemainingCapacity	0x10
++#define GG_FullChargeCapacity	0x12
++#define GG_AverageCurrent	0x14
++#define GG_CycleCount		0x2a
++#define GG_DesignCapacity	0x3c
++
++#define GG_Flags_OTC		0x8000
++#define GG_Flags_OTD		0x4000
++#define GG_Flags_BATLOW		0x1000
++#define GG_Flags_FC		0x0200
++#define GG_Flags_CHG		0x0100
++#define GG_Flags_DSG		0x0001
++
++struct hdq_gauge {
++	struct serdev_device *serdev;
++	struct tigris_chg *chg;
++	struct power_supply *batt;
++	struct delayed_work work;
++	struct completion done;
++	spinlock_t lock;		/* rx-Zustand */
++	struct mutex mtx;		/* Messwerte */
++	bool first;
++
++	unsigned int nrxbit, irxbit;
++	u8 rxbuf[GG_MSG_MAX];
++	u8 txstart[8];
++
++	int s_t, s_v, s_f, s_cr, s_cf, s_ia, s_cy, s_cd;
++	unsigned int good_data;
++};
++
++/* Jedes HDQ-Bit ist ein UART-Byte: 0xFE = 1 (kurz low), 0xC0 = 0 (lang low) */
++static int hdq_xfer(struct hdq_gauge *g, u8 cmd, u8 *rx)
++{
++	unsigned long flags;
++	u8 buf[8];
++	ssize_t n;
++	int j;
++
++	serdev_device_break_ctl(g->serdev, -1);
++	usleep_range(250, 500);
++	serdev_device_break_ctl(g->serdev, 0);
++	usleep_range(150, 500);
++
++	reinit_completion(&g->done);
++	for (j = 0; j < 8; j++)
++		buf[j] = ((cmd >> j) & 1) ? 0xFE : 0xC0;
++	spin_lock_irqsave(&g->lock, flags);
++	g->irxbit = 0;
++	g->nrxbit = (1 + (rx ? 1 : 0)) * 8;
++	memcpy(g->txstart, buf, 8);
++	spin_unlock_irqrestore(&g->lock, flags);
++
++	n = serdev_device_write(g->serdev, buf, sizeof(buf), HZ);
++	if (n != sizeof(buf)) {
++		dev_err_ratelimited(&g->serdev->dev, "HDQ senden fehlgeschlagen (%zd)\n", n);
++		return n < 0 ? n : -EIO;
++	}
++	serdev_device_wait_until_sent(g->serdev, HZ);
++
++	if (!wait_for_completion_timeout(&g->done, msecs_to_jiffies(GG_TIMEOUT_MS))) {
++		dev_warn_ratelimited(&g->serdev->dev, "HDQ Empfang Timeout [%02x] %u/%u Bits\n",
++			cmd, g->irxbit, g->nrxbit);
++		return -ETIMEDOUT;
++	}
++	if (rx) {
++		spin_lock_irqsave(&g->lock, flags);
++		*rx = g->rxbuf[1];
++		spin_unlock_irqrestore(&g->lock, flags);
++	}
++	return 0;
++}
++
++/* TIs empfohlenes Verfahren für 16-Bit-Register (H, L, H nochmal) */
++static int hdq_read_word(struct hdq_gauge *g, u8 reg, int *out)
++{
++	u8 h0, l0, h1;
++	int ret;
++
++	ret = hdq_xfer(g, reg + 1, &h0);
++	if (!ret)
++		ret = hdq_xfer(g, reg, &l0);
++	if (!ret)
++		ret = hdq_xfer(g, reg + 1, &h1);
++	if (ret)
++		return ret;
++	if (h0 != h1) {
++		ret = hdq_xfer(g, reg, &l0);
++		if (ret)
++			return ret;
++	}
++	*out = (s16)(l0 | (h1 << 8));
++	return 0;
++}
++
++static size_t hdq_receive_buf(struct serdev_device *serdev, const u8 *buf, size_t size)
++{
++	struct hdq_gauge *g = serdev_device_get_drvdata(serdev);
++	unsigned long flags;
++	unsigned int j;
++	size_t i;
++
++	spin_lock_irqsave(&g->lock, flags);
++	for (i = 0; i < size; i++) {
++		j = g->irxbit;
++		if (j >= g->nrxbit)
++			break;
++		if (j < 8 && buf[i] != g->txstart[j])	/* Echo muss passen */
++			continue;
++		if ((j & 7) == 0)
++			g->rxbuf[j >> 3] = 0;
++		if (buf[i] >= 0xF0)
++			g->rxbuf[j >> 3] |= 1u << (j & 7);
++		if (++g->irxbit >= g->nrxbit)
++			complete(&g->done);
++	}
++	spin_unlock_irqrestore(&g->lock, flags);
++	return size;
++}
++
++static const struct serdev_device_ops hdq_serdev_ops = {
++	.receive_buf = hdq_receive_buf,
++	.write_wakeup = serdev_device_write_wakeup,
++};
++
++static void hdq_gauge_work(struct work_struct *work)
++{
++	struct hdq_gauge *g = container_of(work, struct hdq_gauge, work.work);
++	struct tigris_chg *c = g->chg;
++	int t, v, f, cr, cf, ia, cy, cd = 0, ret;
++	bool was_good = g->good_data;
++
++	mutex_lock(&c->hdq_lock);
++	ret = tigris_hdq_route(c, true);
++	if (ret)
++		goto out_unlock;
++	usleep_range(10000, 12000);
++
++	ret = hdq_read_word(g, GG_Temperature, &t) ?:
++	      hdq_read_word(g, GG_Voltage, &v) ?:
++	      hdq_read_word(g, GG_Flags, &f) ?:
++	      hdq_read_word(g, GG_RemainingCapacity, &cr) ?:
++	      hdq_read_word(g, GG_FullChargeCapacity, &cf) ?:
++	      hdq_read_word(g, GG_AverageCurrent, &ia) ?:
++	      hdq_read_word(g, GG_CycleCount, &cy);
++	if (!ret && g->first) {
++		int soc = -1, cv = -1, cc = -1;
++
++		hdq_read_word(g, GG_DesignCapacity, &cd);
++		hdq_read_word(g, 0x2c, &soc);	/* StateOfCharge */
++		hdq_read_word(g, 0x30, &cv);	/* ChargingVoltage (bq27545) */
++		hdq_read_word(g, 0x32, &cc);	/* ChargingCurrent */
++		dev_info(&g->serdev->dev, "Gauge: Design %d mAh, SOC %d %%, Soll %d mV / %d mA\n",
++			 cd, soc, cv, cc);
++	}
++
++	tigris_hdq_route(c, false);
++
++	mutex_lock(&g->mtx);
++	if (!ret) {
++		g->s_t = t; g->s_v = v; g->s_f = f; g->s_cr = cr;
++		g->s_cf = cf; g->s_ia = ia; g->s_cy = cy;
++		if (cd > 0)
++			g->s_cd = cd;
++		g->good_data = 3;
++		g->first = false;
++	} else if (g->good_data) {
++		g->good_data--;
++	}
++	mutex_unlock(&g->mtx);
++
++out_unlock:
++	mutex_unlock(&c->hdq_lock);
++	if (ret)
++		dev_warn_ratelimited(&g->serdev->dev, "Gauge-Zyklus fehlgeschlagen: %d\n", ret);
++	else if (g->good_data == 3 && !was_good)
++		dev_info(&g->serdev->dev, "Gauge: %d mV, %d/%d mAh, %d mA, Flags %04x\n",
++			 g->s_v, g->s_cr, g->s_cf, g->s_ia, g->s_f & 0xffff);
++	if (!ret || was_good != !!g->good_data)
++		power_supply_changed(g->batt);
++	schedule_delayed_work(&g->work,
++			      msecs_to_jiffies(g->first ? GG_POLL_INIT_MS : GG_POLL_MS));
++}
++
++static const enum power_supply_property hdq_batt_props[] = {
++	POWER_SUPPLY_PROP_STATUS,
++	POWER_SUPPLY_PROP_PRESENT,
++	POWER_SUPPLY_PROP_HEALTH,
++	POWER_SUPPLY_PROP_TECHNOLOGY,
++	POWER_SUPPLY_PROP_VOLTAGE_NOW,
++	POWER_SUPPLY_PROP_CURRENT_NOW,
++	POWER_SUPPLY_PROP_CHARGE_FULL,
++	POWER_SUPPLY_PROP_CHARGE_FULL_DESIGN,
++	POWER_SUPPLY_PROP_CHARGE_NOW,
++	POWER_SUPPLY_PROP_CAPACITY,
++	POWER_SUPPLY_PROP_TEMP,
++	POWER_SUPPLY_PROP_CYCLE_COUNT,
++	POWER_SUPPLY_PROP_CONSTANT_CHARGE_CURRENT,
++	POWER_SUPPLY_PROP_CONSTANT_CHARGE_VOLTAGE,
++};
++
++static int hdq_capacity(struct hdq_gauge *g)
++{
++	if (!g->s_cf)
++		return 50;
++	return clamp((g->s_cr * 100 + g->s_cf / 2) / g->s_cf, 0, 100);
++}
++
++static int hdq_batt_get_property(struct power_supply *psy,
++				 enum power_supply_property psp,
++				 union power_supply_propval *val)
++{
++	struct hdq_gauge *g = power_supply_get_drvdata(psy);
++	struct tigris_chg *c = g->chg;
++	int ret = 0;
++
++	mutex_lock(&g->mtx);
++	switch (psp) {
++	case POWER_SUPPLY_PROP_STATUS:
++		if (c->stat & REG_STAT_VBUS) {
++			if (g->s_ia < -50)	/* Kabel dran, aber Netto-Entladung */
++				val->intval = POWER_SUPPLY_STATUS_DISCHARGING;
++			else if (g->s_ia > 20)
++				val->intval = POWER_SUPPLY_STATUS_CHARGING;
++			else if ((g->s_f & GG_Flags_FC) || hdq_capacity(g) >= 98)
++				val->intval = POWER_SUPPLY_STATUS_FULL;
++			else
++				val->intval = POWER_SUPPLY_STATUS_NOT_CHARGING;
++		} else {
++			val->intval = POWER_SUPPLY_STATUS_DISCHARGING;
++		}
++		break;
++	case POWER_SUPPLY_PROP_PRESENT:
++		val->intval = 1;
++		break;
++	case POWER_SUPPLY_PROP_HEALTH:
++		if (!g->good_data)
++			val->intval = POWER_SUPPLY_HEALTH_UNKNOWN;
++		else if (g->s_f & (GG_Flags_OTC | GG_Flags_OTD))
++			val->intval = POWER_SUPPLY_HEALTH_OVERHEAT;
++		else
++			val->intval = POWER_SUPPLY_HEALTH_GOOD;
++		break;
++	case POWER_SUPPLY_PROP_TECHNOLOGY:
++		val->intval = POWER_SUPPLY_TECHNOLOGY_LION;
++		break;
++	case POWER_SUPPLY_PROP_VOLTAGE_NOW:
++		/* ohne Gauge-Daten: Akkuspannung vom Tigris-ADC */
++		val->intval = (g->good_data ? g->s_v : c->batt_voltage) * 1000;
++		break;
++	case POWER_SUPPLY_PROP_CURRENT_NOW:
++		val->intval = g->s_ia * 1000;
++		break;
++	case POWER_SUPPLY_PROP_CHARGE_FULL:
++		val->intval = g->s_cf * 1000;
++		break;
++	case POWER_SUPPLY_PROP_CHARGE_FULL_DESIGN:
++		val->intval = (g->s_cd ?: g->s_cf) * 1000;
++		break;
++	case POWER_SUPPLY_PROP_CHARGE_NOW:
++		val->intval = g->s_cr * 1000;
++		break;
++	case POWER_SUPPLY_PROP_CAPACITY:
++		val->intval = hdq_capacity(g);
++		break;
++	case POWER_SUPPLY_PROP_TEMP:
++		val->intval = g->s_t ? g->s_t - 2732 : 250;	/* 0,1 K -> 0,1 °C */
++		break;
++	case POWER_SUPPLY_PROP_CYCLE_COUNT:
++		val->intval = g->s_cy;
++		break;
++	case POWER_SUPPLY_PROP_CONSTANT_CHARGE_CURRENT:
++		val->intval = c->batt_charge_current * 1000;
++		break;
++	case POWER_SUPPLY_PROP_CONSTANT_CHARGE_VOLTAGE:
++		val->intval = c->batt_charge_voltage * 1000;
++		break;
++	default:
++		ret = -EINVAL;
++	}
++	mutex_unlock(&g->mtx);
++	return ret;
++}
++
++static const struct power_supply_desc hdq_batt_desc = {
++	.name = "battery",
++	.type = POWER_SUPPLY_TYPE_BATTERY,
++	.properties = hdq_batt_props,
++	.num_properties = ARRAY_SIZE(hdq_batt_props),
++	.get_property = hdq_batt_get_property,
++};
++
++static int hdq_gauge_probe(struct serdev_device *serdev)
++{
++	struct device *dev = &serdev->dev;
++	struct power_supply_config cfg = {};
++	struct device_node *np;
++	struct i2c_client *cl;
++	struct hdq_gauge *g;
++	int ret;
++
++	g = devm_kzalloc(dev, sizeof(*g), GFP_KERNEL);
++	if (!g)
++		return -ENOMEM;
++
++	np = of_parse_phandle(dev->of_node, "charger", 0);
++	if (!np)
++		return dev_err_probe(dev, -EINVAL, "'charger' fehlt\n");
++	cl = of_find_i2c_device_by_node(np);
++	of_node_put(np);
++	if (!cl)
++		return -EPROBE_DEFER;
++	g->chg = i2c_get_clientdata(cl);
++	put_device(&cl->dev);		/* Lader lebt so lange wie das System */
++	if (!g->chg)
++		return -EPROBE_DEFER;
++
++	g->serdev = serdev;
++	g->first = true;
++	mutex_init(&g->mtx);
++	spin_lock_init(&g->lock);
++	init_completion(&g->done);
++	serdev_device_set_drvdata(serdev, g);
++	serdev_device_set_client_ops(serdev, &hdq_serdev_ops);
++
++	ret = devm_serdev_device_open(dev, serdev);
++	if (ret)
++		return dev_err_probe(dev, ret, "UART öffnen\n");
++	serdev_device_set_baudrate(serdev, 57600);
++	serdev_device_set_flow_control(serdev, false);
++	serdev_device_set_parity(serdev, SERDEV_PARITY_NONE);
++	ret = serdev_device_set_stopbits(serdev, 2);
++	if (ret)
++		dev_warn(dev, "2 Stoppbits nicht setzbar: %d\n", ret);
++
++	cfg.drv_data = g;
++	cfg.fwnode = dev_fwnode(dev);
++	g->batt = devm_power_supply_register(dev, &hdq_batt_desc, &cfg);
++	if (IS_ERR(g->batt))
++		return dev_err_probe(dev, PTR_ERR(g->batt), "battery-psy\n");
++	g->chg->batt = g->batt;
++
++	ret = devm_delayed_work_autocancel(dev, &g->work, hdq_gauge_work);
++	if (ret)
++		return ret;
++	schedule_delayed_work(&g->work, msecs_to_jiffies(GG_POLL_INIT_MS));
++	return 0;
++}
++
++static const struct of_device_id hdq_gauge_of_match[] = {
++	{ .compatible = "ti,bq27545-hdquart" },
++	{ }
++};
++MODULE_DEVICE_TABLE(of, hdq_gauge_of_match);
++
++static struct serdev_device_driver hdq_gauge_driver = {
++	.probe = hdq_gauge_probe,
++	.driver = {
++		.name = "bq27545-hdquart",
++		.of_match_table = hdq_gauge_of_match,
++		/* hält Zeiger auf den Lader -> kein manuelles unbind */
++		.suppress_bind_attrs = true,
++	},
++};
++
++static int __init apple_tigris_init(void)
++{
++	int ret = i2c_add_driver(&tigris_driver);
++
++	if (ret)
++		return ret;
++	ret = serdev_device_driver_register(&hdq_gauge_driver);
++	if (ret)
++		i2c_del_driver(&tigris_driver);
++	return ret;
++}
++module_init(apple_tigris_init);
++
++static void __exit apple_tigris_exit(void)
++{
++	serdev_device_driver_unregister(&hdq_gauge_driver);
++	i2c_del_driver(&tigris_driver);
++}
++module_exit(apple_tigris_exit);
++
++MODULE_AUTHOR("Corellium LLC (Sandcastle), Nura-Port");
++MODULE_DESCRIPTION("Apple Tigris-Lader und bq27545-HDQ-Gasgauge (iPhone 7)");
++MODULE_LICENSE("GPL");
+--- a/drivers/power/supply/Kconfig
++++ b/drivers/power/supply/Kconfig
+@@ -300,6 +300,14 @@
+ 	  This driver can also be built as a module. If so, the module will be
+ 	  called sbs-manager.
+ 
++config CHARGER_APPLE_TIGRIS
++	tristate "Apple Tigris charger and bq27545 HDQ-UART gauge"
++	depends on I2C && SERIAL_DEV_BUS && OF
++	depends on ARCH_APPLE || COMPILE_TEST
++	help
++	  Charger (SN2400 "Tigris") and battery fuel gauge (TI bq27545,
++	  reached via HDQ over a UART) found in A10 iPhones.
++
+ config BATTERY_BQ27XXX
+ 	tristate "BQ27xxx battery driver"
+ 	help
+--- a/drivers/power/supply/Makefile
++++ b/drivers/power/supply/Makefile
+@@ -48,6 +48,7 @@
+ obj-$(CONFIG_BATTERY_SBS)	+= sbs-battery.o
+ obj-$(CONFIG_CHARGER_SBS)	+= sbs-charger.o
+ obj-$(CONFIG_MANAGER_SBS)	+= sbs-manager.o
++obj-$(CONFIG_CHARGER_APPLE_TIGRIS)	+= apple-tigris.o
+ obj-$(CONFIG_BATTERY_BQ27XXX)	+= bq27xxx_battery.o
+ obj-$(CONFIG_BATTERY_BQ27XXX_I2C) += bq27xxx_battery_i2c.o
+ obj-$(CONFIG_BATTERY_BQ27XXX_HDQ) += bq27xxx_battery_hdq.o
+--- a/drivers/tty/serial/Kconfig
++++ b/drivers/tty/serial/Kconfig
+@@ -232,6 +232,7 @@
+ config SERIAL_SAMSUNG_UARTS
+ 	int
+ 	depends on SERIAL_SAMSUNG
++	default 8 if ARCH_APPLE
+ 	default 4
+ 	help
+ 	  Select the number of available UART ports for the Samsung S3C

@@ -1,0 +1,191 @@
+// SPDX-License-Identifier: GPL-2.0+ OR MIT
+/*
+ * Apple iPhone 7 / 7 Plus common device tree
+ *
+ * Copyright (c) 2022, Konrad Dybcio <konradybcio@kernel.org>
+ */
+
+#include "t8010.dtsi"
+#include <dt-bindings/gpio/gpio.h>
+#include "t8010-common.dtsi"
+#include <dt-bindings/input/input.h>
+
+/ {
+	chassis-type = "handset";
+
+	gpio-keys {
+		compatible = "gpio-keys";
+
+		button-power {
+			label = "Power Button";
+			gpios = <&pinctrl_ap 179 GPIO_ACTIVE_LOW>;
+			linux,code = <KEY_POWER>;
+			wakeup-source;
+		};
+
+		button-voldown {
+			label = "Volume Down";
+			gpios = <&pinctrl_ap 180 GPIO_ACTIVE_LOW>;
+			linux,code = <KEY_VOLUMEDOWN>;
+		};
+
+		button-volup {
+			label = "Volume Up";
+			gpios = <&pinctrl_ap 23 GPIO_ACTIVE_LOW>;
+			linux,code = <KEY_VOLUMEUP>;
+		};
+
+		switch-mute {
+			label = "Mute Switch";
+			gpios = <&pinctrl_ap 86 GPIO_ACTIVE_LOW>;
+			linux,code = <KEY_MUTE>;
+		};
+	};
+};
+
+&framebuffer0 {
+	power-domains = <&ps_disp0_fe &ps_disp0_be &ps_mipi_dsi>;
+};
+
+&hurricane_opp09 {
+	status = "okay";
+};
+
+&hurricane_opp10 {
+	status = "okay";
+};
+
+&i2c1 {
+	status = "okay";
+
+	pmic@74 {
+		compatible = "apple,adelyn-pmic", "apple,i2c-pmic";
+		reg = <0x74>;
+		#address-cells = <1>;
+		#size-cells = <1>;
+
+		rtc@500 {
+			compatible = "apple,adelyn-pmic-rtc", "apple,antigua-pmic-rtc";
+			reg = <0x500 0x10>;
+			nvmem-cells = <&rtc_offset>;
+			nvmem-cell-names = "rtc_offset";
+		};
+
+		/* D2333-GPIOs (Sandcastle pmu_gpio): GPIO 10 = WLAN reg_on */
+		pmic_gpio: gpio@900 {
+			compatible = "apple,pmic-gpio";
+			reg = <0x900 0x40>;
+			apple,input-reg = <0x186>;
+			apple,gpio-offsets = <0x00 0x02 0x04 0x06 0x08 0x0a 0x0c 0x0e
+					      0x10 0x12 0x14 0x16 0x18 0x1a 0x1c 0x1e
+					      0x20 0x27 0x2d 0x33 0x39>;
+			gpio-controller;
+			#gpio-cells = <2>;
+		};
+
+		/* Touch-Controller Kern-Versorgung (Sandcastle: touch_pwrsw) */
+		touch_core: touch-core@31f {
+			compatible = "apple,pmic-switch";
+			reg = <0x31f 1>;
+			apple,enable-mask = <0x01>;
+			regulator-name = "touch-core";
+		};
+
+		nvmem@5000 {
+			compatible = "apple,pmic-nvmem";
+			reg = <0x5000 0x28>;
+
+			nvmem-layout {
+				compatible = "fixed-layout";
+				#address-cells = <1>;
+				#size-cells = <1>;
+
+				rtc_offset: rtc-offset@4 {
+					reg = <0x4 0x4>;
+				};
+			};
+		};
+	};
+};
+
+&pmgr {
+	touch_clk: clock-controller@78000 {
+		compatible = "apple,t8010-touch-clk";
+		reg = <0x78000 0x8>;
+		clocks = <&clkref>;
+		#clock-cells = <0>;
+		clock-frequency = <32768>;
+		clock-output-names = "touch_clk";
+	};
+};
+
+&i2c0 {
+	status = "okay";
+
+	/* Display-PMU "chestnut": Reg 0x05 Bits 0-3 = LCD-LDO (nicht anfassen!), Bit 4 = Touch HV */
+	pmic@27 {
+		compatible = "apple,chestnut-pmic";
+		reg = <0x27>;
+		#address-cells = <1>;
+		#size-cells = <1>;
+
+		touch_hv: touch-hv@5 {
+			compatible = "apple,pmic-switch";
+			reg = <0x5 1>;
+			apple,enable-mask = <0x10>;
+			regulator-name = "touch-hv";
+		};
+	};
+};
+
+&spi2 {
+	status = "okay";
+
+	touchscreen@0 {
+		compatible = "apple,t8010-multitouch";
+		reg = <0>;
+		spi-max-frequency = <3000000>;
+		hv-supply = <&touch_hv>;
+		core-supply = <&touch_core>;
+		reset-gpios = <&pinctrl_ap 161 GPIO_ACTIVE_HIGH>;
+		cs-gpios = <&pinctrl_ap 81 GPIO_ACTIVE_HIGH>;
+		irq-gpios = <&pinctrl_ap 166 GPIO_ACTIVE_LOW>;
+		clocks = <&touch_clk>;
+	};
+};
+
+&pcie {
+	status = "okay";
+
+	/* Port 2: WLAN (BCM4355, ADT pci-bridge2/wlan) */
+	port02: pci@2,0 {
+		device_type = "pci";
+		reg = <0x1000 0x0 0x0 0x0 0x0>;
+		reset-gpios = <&pinctrl_ap 14 GPIO_ACTIVE_LOW>;
+		/* Einschaltreihenfolge: device_wake (SoC 88), dann reg_on (PMU 10) */
+		power-gpios = <&pinctrl_ap 88 GPIO_ACTIVE_HIGH>,
+			      <&pmic_gpio 10 GPIO_ACTIVE_HIGH>;
+		max-link-speed = <1>;
+		bus-range = <1 1>;
+		#address-cells = <3>;
+		#size-cells = <2>;
+		ranges;
+
+		/* MAC (local-mac-address) und brcm,cal-blob trägt m1n1 aus der ADT ein */
+		wifi0: wifi@0,0 {
+			compatible = "pci14e4,43dc";
+			reg = <0x10000 0x0 0x0 0x0 0x0>;
+			brcm,board-type = "apple,elsa";
+			/* iPhone-ADT hat keine Antennen-SKU; Platzhalter aktiviert in brcmfmac die
+			 * Apple-Firmwareauswahl über die OTP-Daten (Modul/Hersteller/Version) */
+			apple,antenna-sku = "X0";
+			local-mac-address = [00 00 00 00 00 00];
+		};
+	};
+};
+
+/ {
+	aliases {
+		wifi0 = &wifi0;
+	};
+};

@@ -1,0 +1,272 @@
+--- a/drivers/pci/controller/pcie-apple-t8010.c
++++ b/drivers/pci/controller/pcie-apple-t8010.c
+@@ -11,6 +11,8 @@
+  * enabled port gets a static, linear translation (apple,dma-window) that
+  * matches the dma-ranges of this node; devices then DMA via swiotlb.
+  */
++#include <linux/dma-direct.h>
++#include <linux/pcie-apple-t8010.h>
+ #include <linux/bitfield.h>
+ #include <linux/bitmap.h>
+ #include <linux/delay.h>
+@@ -117,6 +119,15 @@
+ 	int npwr;
+ 	u32 max_speed;
+ 	bool link_up;
++	/* NVMe-Port: SART bildet das Scratch-Fenster (IOVA) auf reservierten RAM ab */
++	void __iomem *sart;
++	u32 sart_iova, sart_size;
++	u64 sart_pa;
++	/* NVMMU (gleicher Registerblock wie SART): TCB je Tag + Seitenlisten */
++	u32 *tcb, *sgl;
++	void *tcb_table;
++	dma_addr_t tcb_bus, sgl_bus, table_bus;
++	spinlock_t nvmmu_lock;
+ };
+ 
+ struct t8010_pcie {
+@@ -366,6 +377,133 @@
+ 
+ /* -------------------------------------------------------- bring-up ------ */
+ 
++#define NVMMU_TCB_CTRL		0x04
++#define NVMMU_TCB_BASE_LO	0x08
++#define NVMMU_TCB_BASE_HI	0x0c
++#define NVMMU_TCB_TABLE_LO	0x10
++#define NVMMU_TCB_TABLE_HI	0x14
++#define NVMMU_TCB_SIZE		0x80
++#define NVMMU_TCB_PERM_READ	0x100
++#define NVMMU_TCB_PERM_WRITE	0x200
++#define NVMMU_IOVA_BASE		0x40000000u
++#define NVMMU_TABLE_SIZE	SZ_64K
++
++#define SART_CTRL		0x20
++#define SART_VA_BASE		0x24
++#define SART_VA_END		0x28
++#define SART_PA_BASE		0x2c
++
++static struct t8010_port *apple_nvmmu_port(struct pci_dev *pdev, struct t8010_pcie **pp)
++{
++	struct pci_host_bridge *bridge = pci_find_host_bridge(pdev->bus);
++	struct t8010_pcie *pcie;
++	struct pci_dev *rp = pcie_find_root_port(pdev);
++
++	if (!bridge || !rp || !bridge->dev.parent ||
++	    !of_device_is_compatible(bridge->dev.parent->of_node, "apple,t8010-pcie"))
++		return NULL;
++	pcie = pci_host_bridge_priv(bridge);
++	if (PCI_SLOT(rp->devfn) >= NUM_PORT || !pcie->port[PCI_SLOT(rp->devfn)].tcb)
++		return NULL;
++	if (pp)
++		*pp = pcie;
++	return &pcie->port[PCI_SLOT(rp->devfn)];
++}
++
++bool apple_t8010_nvmmu_available(struct pci_dev *pdev)
++{
++	return apple_nvmmu_port(pdev, NULL) != NULL;
++}
++EXPORT_SYMBOL_GPL(apple_t8010_nvmmu_available);
++
++phys_addr_t apple_t8010_bus_to_phys(struct pci_dev *pdev, dma_addr_t bus)
++{
++	/* DMA-Adresse des PCI-Geräts (DART-Fenster/swiotlb) -> physisch, für die NVMMU */
++	return dma_to_phys(&pdev->dev, bus);
++}
++EXPORT_SYMBOL_GPL(apple_t8010_bus_to_phys);
++
++int apple_t8010_nvmmu_map(struct pci_dev *pdev, unsigned int tag,
++			  const u64 *pages, unsigned int npages, u64 *iova)
++{
++	struct t8010_pcie *pcie;
++	struct t8010_port *port = apple_nvmmu_port(pdev, &pcie);
++	u32 *tcb, *sgl;
++	unsigned long flags;
++	unsigned int i;
++
++	if (!port)
++		return -ENODEV;
++	if (tag >= APPLE_NVMMU_TAGS || !npages || npages > APPLE_NVMMU_SGL)
++		return -EINVAL;
++
++	tcb = port->tcb + tag * (NVMMU_TCB_SIZE / 4);
++	sgl = port->sgl + tag * APPLE_NVMMU_SGL;
++	spin_lock_irqsave(&port->nvmmu_lock, flags);
++	for (i = 0; i < npages; i++)
++		sgl[i] = pages[i] >> 12;
++	tcb[0] = NVMMU_TCB_PERM_READ | NVMMU_TCB_PERM_WRITE;
++	tcb[1] = npages;
++	tcb[2] = pages[0] >> 12;
++	*(u64 *)&tcb[4] = dma_to_phys(pcie->dev, port->sgl_bus) +
++			   tag * APPLE_NVMMU_SGL * 4;
++	wmb();	/* Tabellen sichtbar, bevor der Befehl die Doorbell erreicht */
++	spin_unlock_irqrestore(&port->nvmmu_lock, flags);
++	*iova = NVMMU_IOVA_BASE + ((u64)tag << 23);
++	return 0;
++}
++EXPORT_SYMBOL_GPL(apple_t8010_nvmmu_map);
++
++void apple_t8010_nvmmu_unmap(struct pci_dev *pdev, unsigned int tag)
++{
++	struct t8010_port *port = apple_nvmmu_port(pdev, NULL);
++	unsigned long flags;
++	u32 *tcb;
++
++	if (!port || tag >= APPLE_NVMMU_TAGS)
++		return;
++	tcb = port->tcb + tag * (NVMMU_TCB_SIZE / 4);
++	spin_lock_irqsave(&port->nvmmu_lock, flags);
++	tcb[0] = 0;
++	tcb[1] = 0;
++	tcb[2] = 0;
++	wmb();
++	writel(tag, port->sart + NVMMU_TCB_CTRL);	/* TLB des Tags verwerfen */
++	spin_unlock_irqrestore(&port->nvmmu_lock, flags);
++}
++EXPORT_SYMBOL_GPL(apple_t8010_nvmmu_unmap);
++
++static void t8010_setup_sart(struct t8010_pcie *pcie, struct t8010_port *port)
++{
++	void __iomem *s = port->sart;
++
++	dev_info(pcie->dev, "port%u: SART vorher ctrl %#x va %#x-%#x pa %#x\n", port->idx,
++		 readl(s + SART_CTRL), readl(s + SART_VA_BASE), readl(s + SART_VA_END),
++		 readl(s + SART_PA_BASE));
++	if (port->tcb) {
++		u64 tcb = dma_to_phys(pcie->dev, port->tcb_bus);
++		u64 tab = dma_to_phys(pcie->dev, port->table_bus);
++
++		writel(lower_32_bits(tcb), s + NVMMU_TCB_BASE_LO);
++		writel(upper_32_bits(tcb), s + NVMMU_TCB_BASE_HI);
++		writel(lower_32_bits(tab), s + NVMMU_TCB_TABLE_LO);
++		writel(upper_32_bits(tab), s + NVMMU_TCB_TABLE_HI);
++		writel(0x10000, s + NVMMU_TCB_CTRL);
++		if (wait_bits(pcie, s + NVMMU_TCB_CTRL, 0x10, 0, 0, 250, "NVMMU TCB start"))
++			dev_warn(pcie->dev, "port%u: NVMMU startet nicht\n", port->idx);
++		else
++			dev_info(pcie->dev, "port%u: NVMMU TCB %#llx, Tabelle %#llx\n",
++				 port->idx, tcb, tab);
++	}
++	writel(port->sart_iova - 0x80000000u, s + SART_VA_BASE);
++	writel(port->sart_iova + ALIGN(port->sart_size, SZ_1M) - 0x80100000u,
++	       s + SART_VA_END);
++	writel(port->sart_pa >> 20, s + SART_PA_BASE);
++	writel(1, s + SART_CTRL);
++	dev_info(pcie->dev, "port%u: SART %#x+%#x -> %#llx\n", port->idx,
++		 port->sart_iova, port->sart_size, port->sart_pa);
++}
++
+ static bool t8010_link_up(struct t8010_port *port)
+ {
+ 	u32 st = FIELD_GET(PORT_LINKSTS_LTSSM, readl(port->base + PORT_LINKSTS));
+@@ -516,6 +654,8 @@
+ 			continue;
+ 		STEP(dev, "7 setup port%u", i);
+ 		t8010_setup_port(pcie, cfg->win, port);
++		if (port->sart)
++			t8010_setup_sart(pcie, port);
+ 		if (port->dart) {
+ 			STEP(dev, "8 dart port%u", i);
+ 			ret = t8010_dart_static_map(pcie, port);
+@@ -533,9 +673,17 @@
+ 	struct pci_config_window *cfg = bus->sysdata;
+ 	struct t8010_pcie *pcie;
+ 
+-	if (bus->number != cfg->busr.start)
+-		return true;
+ 	pcie = pci_host_bridge_priv(dev_get_drvdata(cfg->parent));
++	if (bus->number != cfg->busr.start) {
++		struct pci_dev *rp = bus->self;
++
++		if (PCI_SLOT(devfn) != 0)
++			return false;
++		if (rp && rp->bus->number == cfg->busr.start &&
++		    PCI_SLOT(rp->devfn) < NUM_PORT)
++			return pcie->port[PCI_SLOT(rp->devfn)].link_up;
++		return true;
++	}
+ 	return PCI_SLOT(devfn) < NUM_PORT && PCI_FUNC(devfn) == 0 &&
+ 	       (pcie->port_mask & BIT(PCI_SLOT(devfn)));
+ }
+@@ -578,6 +726,9 @@
+ /* Notschalter: pcie_apple_t8010.disable=1 auf der Kernel-Kommandozeile */
+ static bool disable;
+ module_param(disable, bool, 0644);
++/* Ports trotz DT auslassen, z.B. skip_ports=0x1 = ohne NVMe */
++static uint skip_ports;
++module_param(skip_ports, uint, 0444);
+ MODULE_PARM_DESC(disable, "do not touch the PCIe hardware");
+ 
+ static int t8010_parse_port(struct t8010_pcie *pcie, struct platform_device *pdev,
+@@ -600,6 +751,10 @@
+ 	port->pcie = pcie;
+ 	port->np = np;
+ 	port->idx = PCI_SLOT(devfn);
++	if (skip_ports & BIT(port->idx)) {
++		dev_info(dev, "port%u: per skip_ports ausgelassen\n", port->idx);
++		return 0;
++	}
+ 
+ 	snprintf(name, sizeof(name), "port%u", port->idx);
+ 	port->base = devm_platform_ioremap_resource_byname(pdev, name);
+@@ -632,6 +787,29 @@
+ 		port->pwr[port->npwr] = g;
+ 	}
+ 
++	snprintf(name, sizeof(name), "sart%u", port->idx);
++	if (platform_get_resource_byname(pdev, IORESOURCE_MEM, name)) {
++		u32 sart[4];
++
++		if (of_property_read_u32_array(np, "apple,sart", sart, 4))
++			return dev_err_probe(dev, -EINVAL, "port%u: apple,sart fehlt\n", port->idx);
++		port->sart = devm_platform_ioremap_resource_byname(pdev, name);
++		if (IS_ERR(port->sart))
++			return PTR_ERR(port->sart);
++		spin_lock_init(&port->nvmmu_lock);
++		port->tcb = dmam_alloc_coherent(dev, APPLE_NVMMU_TAGS * NVMMU_TCB_SIZE,
++						&port->tcb_bus, GFP_KERNEL);
++		port->sgl = dmam_alloc_coherent(dev, APPLE_NVMMU_TAGS * APPLE_NVMMU_SGL * 4,
++						&port->sgl_bus, GFP_KERNEL);
++		port->tcb_table = dmam_alloc_coherent(dev, NVMMU_TABLE_SIZE,
++						      &port->table_bus, GFP_KERNEL);
++		if (!port->tcb || !port->sgl || !port->tcb_table)
++			return dev_err_probe(dev, -ENOMEM, "NVMMU-Tabellen\n");
++		port->sart_iova = sart[0];
++		port->sart_pa = ((u64)sart[1] << 32) | sart[2];
++		port->sart_size = sart[3];
++	}
++
+ 	if (of_property_read_u32(np, "max-link-speed", &port->max_speed))
+ 		port->max_speed = 1;
+ 
+--- a/include/linux/pcie-apple-t8010.h
++++ b/include/linux/pcie-apple-t8010.h
+@@ -0,0 +1,28 @@
++/* SPDX-License-Identifier: GPL-2.0 */
++/* Apple A10 (t8010) PCIe: NVMMU-Schnittstelle für die eingebaute ANS2-NVMe */
++#ifndef _LINUX_PCIE_APPLE_T8010_H
++#define _LINUX_PCIE_APPLE_T8010_H
++
++#include <linux/types.h>
++
++struct pci_dev;
++
++#define APPLE_NVMMU_TAGS	64
++#define APPLE_NVMMU_SGL		256	/* 4-KiB-Seiten je Tag */
++#define APPLE_NVMMU_PAGE	4096
++
++#if IS_BUILTIN(CONFIG_PCIE_APPLE_T8010)
++bool apple_t8010_nvmmu_available(struct pci_dev *pdev);
++phys_addr_t apple_t8010_bus_to_phys(struct pci_dev *pdev, dma_addr_t bus);
++int apple_t8010_nvmmu_map(struct pci_dev *pdev, unsigned int tag,
++			  const u64 *pages, unsigned int npages, u64 *iova);
++void apple_t8010_nvmmu_unmap(struct pci_dev *pdev, unsigned int tag);
++#else
++static inline bool apple_t8010_nvmmu_available(struct pci_dev *pdev) { return false; }
++static inline phys_addr_t apple_t8010_bus_to_phys(struct pci_dev *pdev, dma_addr_t bus) { return 0; }
++static inline int apple_t8010_nvmmu_map(struct pci_dev *pdev, unsigned int tag,
++					const u64 *pages, unsigned int npages, u64 *iova)
++{ return -ENODEV; }
++static inline void apple_t8010_nvmmu_unmap(struct pci_dev *pdev, unsigned int tag) { }
++#endif
++#endif

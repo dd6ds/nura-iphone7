@@ -1,0 +1,337 @@
+--- a/drivers/spi/spi-apple-s5l.c
++++ b/drivers/spi/spi-apple-s5l.c
+@@ -0,0 +1,308 @@
++// SPDX-License-Identifier: GPL-2.0
++/*
++ * SPI controller of older Apple SoCs (S5L heritage, e.g. A10 / T8010).
++ *
++ * Unlike the M1-era block handled by spi-apple, FIFO levels are reported in
++ * the STATUS register (TX bits 6..10, RX bits 11..15, 16 entries deep).
++ *
++ * Ported from the Project Sandcastle "spi-hx" driver,
++ * Copyright (C) 2020 Corellium LLC.
++ */
++#include <linux/clk.h>
++#include <linux/completion.h>
++#include <linux/delay.h>
++#include <linux/gpio/consumer.h>
++#include <linux/interrupt.h>
++#include <linux/io.h>
++#include <linux/module.h>
++#include <linux/of.h>
++#include <linux/platform_device.h>
++#include <linux/pm_runtime.h>
++#include <linux/spi/spi.h>
++
++#define REG_CLKCFG			0x00
++#define  REG_CLKCFG_ENABLE		0xD
++#define REG_CONFIG			0x04
++#define  REG_CONFIG_PIOEN		BIT(5)
++#define  REG_CONFIG_IE_RXRDY		BIT(7)
++#define  REG_CONFIG_IE_TXEMPTY		BIT(8)
++#define  REG_CONFIG_SET			0x0010401E
++#define REG_STATUS			0x08
++#define  REG_STATUS_RXRDY		BIT(0)
++#define  REG_STATUS_TXEMPTY		BIT(1)
++#define  REG_STATUS_TXFIFO_MASK		GENMASK(10, 6)
++#define  REG_STATUS_TXFIFO_SHIFT	6
++#define  REG_STATUS_RXFIFO_MASK		GENMASK(15, 11)
++#define  REG_STATUS_RXFIFO_SHIFT	11
++#define  REG_STATUS_COMPL		BIT(22)
++#define  REG_STATUS_CLEAR		(REG_STATUS_COMPL | REG_STATUS_TXEMPTY | REG_STATUS_RXRDY)
++#define REG_PIN				0x0C
++#define REG_TXDATA			0x10
++#define REG_RXDATA			0x20
++#define REG_CLKDIV			0x30
++#define  REG_CLKDIV_MAX			2047
++#define REG_RXCNT			0x34
++#define REG_CLKIDLE			0x38
++#define REG_TXCNT			0x4C
++
++#define SPI_FIFO			16
++#define TIMEOUT_MS			1000
++
++struct apple_s5l_spi {
++	struct spi_controller *ctlr;
++	void __iomem *base;
++	unsigned int clkfreq;
++	struct clk *clk;
++	struct gpio_descs *csgpio;
++
++	spinlock_t lock;
++	const u8 *tx_buf;
++	u8 *rx_buf;
++	unsigned int tx_compl, rx_compl, len;
++	struct completion done;
++};
++
++static void s5l_spi_continue_tx(struct apple_s5l_spi *spi, u32 status)
++{
++	unsigned int maxtx = SPI_FIFO -
++		((status & REG_STATUS_TXFIFO_MASK) >> REG_STATUS_TXFIFO_SHIFT);
++
++	while (spi->tx_compl < spi->len && maxtx) {
++		writel(spi->tx_buf ? spi->tx_buf[spi->tx_compl] : 0,
++		       spi->base + REG_TXDATA);
++		spi->tx_compl++;
++		maxtx--;
++	}
++
++	if (spi->tx_compl < spi->len)
++		writel(REG_CONFIG_SET | REG_CONFIG_PIOEN | REG_CONFIG_IE_TXEMPTY |
++		       REG_CONFIG_IE_RXRDY, spi->base + REG_CONFIG);
++	else
++		writel(REG_CONFIG_SET | REG_CONFIG_PIOEN | REG_CONFIG_IE_RXRDY,
++		       spi->base + REG_CONFIG);
++}
++
++static bool s5l_spi_continue_rx(struct apple_s5l_spi *spi, u32 status)
++{
++	unsigned int maxrx = (status & REG_STATUS_RXFIFO_MASK) >> REG_STATUS_RXFIFO_SHIFT;
++	u32 data;
++
++	while (spi->rx_compl < spi->len && maxrx) {
++		data = readl(spi->base + REG_RXDATA);
++		if (spi->rx_buf)
++			spi->rx_buf[spi->rx_compl] = data;
++		spi->rx_compl++;
++		maxrx--;
++	}
++
++	if (spi->rx_compl >= spi->len) {
++		writel(REG_CONFIG_SET, spi->base + REG_CONFIG);
++		writel(REG_STATUS_CLEAR, spi->base + REG_STATUS);
++		return true;
++	}
++	return false;
++}
++
++static irqreturn_t s5l_spi_irq(int irq, void *dev_id)
++{
++	struct apple_s5l_spi *spi = dev_id;
++	unsigned long flags;
++	u32 status;
++
++	spin_lock_irqsave(&spi->lock, flags);
++	status = readl(spi->base + REG_STATUS);
++	writel(status, spi->base + REG_STATUS);
++	s5l_spi_continue_tx(spi, status);
++	if (s5l_spi_continue_rx(spi, status))
++		complete(&spi->done);
++	spin_unlock_irqrestore(&spi->lock, flags);
++
++	return IRQ_HANDLED;
++}
++
++static void s5l_spi_set_cs(struct spi_device *sdev, bool enable)
++{
++	struct apple_s5l_spi *spi = spi_controller_get_devdata(sdev->controller);
++	unsigned int cs = spi_get_chipselect(sdev, 0);
++
++	if (!spi->csgpio || cs >= spi->csgpio->ndescs)
++		return;
++	gpiod_direction_output(spi->csgpio->desc[cs], !enable);
++}
++
++static int s5l_spi_prepare(struct apple_s5l_spi *spi, unsigned int speed)
++{
++	u32 rate = DIV_ROUND_UP(spi->clkfreq, speed);
++
++	if (rate > REG_CLKDIV_MAX + 1)
++		return -EINVAL;
++	if (rate < 2)
++		rate = 2;
++
++	writel(0, spi->base + REG_CLKCFG);
++	writel(0, spi->base + REG_PIN);
++	writel(REG_STATUS_CLEAR, spi->base + REG_STATUS);
++	writel(rate, spi->base + REG_CLKDIV);
++	writel(2, spi->base + REG_CLKIDLE);
++	writel(REG_STATUS_CLEAR, spi->base + REG_STATUS);
++	writel(REG_CONFIG_SET, spi->base + REG_CONFIG);
++	writel(REG_CLKCFG_ENABLE, spi->base + REG_CLKCFG);
++	readl(spi->base + REG_CONFIG);
++	return 0;
++}
++
++static int s5l_spi_transfer_one_message(struct spi_controller *ctlr,
++					struct spi_message *m)
++{
++	struct apple_s5l_spi *spi = spi_controller_get_devdata(ctlr);
++	unsigned long timeout = msecs_to_jiffies(TIMEOUT_MS);
++	struct spi_device *sdev = m->spi;
++	unsigned int speed = sdev->max_speed_hz;
++	struct spi_transfer *t;
++	unsigned long flags;
++	int status = 0;
++
++	list_for_each_entry(t, &m->transfers, transfer_list)
++		if (t->speed_hz && t->speed_hz < speed)
++			speed = t->speed_hz;
++
++	if (s5l_spi_prepare(spi, speed)) {
++		status = -EIO;
++		goto msg_done;
++	}
++
++	s5l_spi_set_cs(sdev, true);
++
++	m->actual_length = 0;
++	list_for_each_entry(t, &m->transfers, transfer_list) {
++		spin_lock_irqsave(&spi->lock, flags);
++		reinit_completion(&spi->done);
++		spi->len = t->len;
++		spi->tx_compl = 0;
++		spi->rx_compl = 0;
++		spi->tx_buf = t->tx_buf;
++		spi->rx_buf = t->rx_buf;
++		writel(t->len, spi->base + REG_RXCNT);
++		writel(t->len, spi->base + REG_TXCNT);
++		writel(REG_CONFIG_SET | REG_CONFIG_PIOEN, spi->base + REG_CONFIG);
++		s5l_spi_continue_tx(spi, readl(spi->base + REG_STATUS));
++		spin_unlock_irqrestore(&spi->lock, flags);
++
++		timeout = wait_for_completion_timeout(&spi->done, timeout);
++
++		spin_lock_irqsave(&spi->lock, flags);
++		writel(REG_CONFIG_SET, spi->base + REG_CONFIG);
++		writel(REG_STATUS_CLEAR, spi->base + REG_STATUS);
++		if (!timeout) {
++			dev_err(&sdev->dev, "transfer timed out (%u/%u left)\n",
++				spi->len - spi->tx_compl, spi->len - spi->rx_compl);
++			status = -ETIMEDOUT;
++		}
++		m->actual_length += t->len;
++		spin_unlock_irqrestore(&spi->lock, flags);
++		if (status)
++			break;
++	}
++
++	s5l_spi_set_cs(sdev, false);
++
++msg_done:
++	m->status = status;
++	spi_finalize_current_message(ctlr);
++	return 0;
++}
++
++static int s5l_spi_setup(struct spi_device *sdev)
++{
++	struct apple_s5l_spi *spi = spi_controller_get_devdata(sdev->controller);
++
++	if (!sdev->max_speed_hz || sdev->max_speed_hz > spi->clkfreq / 2)
++		sdev->max_speed_hz = spi->clkfreq / 2;
++	if (sdev->max_speed_hz < spi->clkfreq / (REG_CLKDIV_MAX + 1)) {
++		dev_err(&sdev->dev, "requested speed too low: %u Hz\n", sdev->max_speed_hz);
++		return -EINVAL;
++	}
++	return 0;
++}
++
++static int s5l_spi_probe(struct platform_device *pdev)
++{
++	struct device *dev = &pdev->dev;
++	struct spi_controller *ctlr;
++	struct apple_s5l_spi *spi;
++	int ret, ncs, irq;
++
++	ctlr = devm_spi_alloc_host(dev, sizeof(*spi));
++	if (!ctlr)
++		return -ENOMEM;
++	spi = spi_controller_get_devdata(ctlr);
++	spi->ctlr = ctlr;
++
++	spi->base = devm_platform_ioremap_resource(pdev, 0);
++	if (IS_ERR(spi->base))
++		return PTR_ERR(spi->base);
++
++	spi->clk = devm_clk_get_enabled(dev, NULL);
++	if (IS_ERR(spi->clk))
++		return dev_err_probe(dev, PTR_ERR(spi->clk), "unable to get clock\n");
++	spi->clkfreq = clk_get_rate(spi->clk);
++
++	ncs = gpiod_count(dev, "cs");
++	if (ncs > 0) {
++		spi->csgpio = devm_gpiod_get_array(dev, "cs", GPIOD_OUT_HIGH);
++		if (IS_ERR(spi->csgpio))
++			return dev_err_probe(dev, PTR_ERR(spi->csgpio), "failed to get cs gpios\n");
++	} else {
++		ncs = 0;
++	}
++
++	ret = devm_pm_runtime_enable(dev);
++	if (ret)
++		return ret;
++	ret = pm_runtime_resume_and_get(dev);
++	if (ret)
++		return ret;
++
++	spin_lock_init(&spi->lock);
++	init_completion(&spi->done);
++
++	irq = platform_get_irq(pdev, 0);
++	if (irq < 0)
++		return irq;
++	ret = devm_request_irq(dev, irq, s5l_spi_irq, 0, dev_name(dev), spi);
++	if (ret)
++		return ret;
++
++	ctlr->dev.of_node = dev->of_node;
++	ctlr->mode_bits = SPI_LSB_FIRST;
++	ctlr->setup = s5l_spi_setup;
++	ctlr->transfer_one_message = s5l_spi_transfer_one_message;
++	ctlr->bits_per_word_mask = SPI_BPW_MASK(8);
++	ctlr->num_chipselect = ncs ? ncs : 1;
++
++	dev_info(dev, "Apple S5L SPI at %u MHz, %d chip select GPIO(s)\n",
++		 spi->clkfreq / 1000000, ncs);
++
++	return devm_spi_register_controller(dev, ctlr);
++}
++
++static const struct of_device_id s5l_spi_match[] = {
++	{ .compatible = "apple,t8010-spi" },
++	{ .compatible = "apple,s5l-spi" },
++	{ .compatible = "hx,spi" },
++	{ }
++};
++MODULE_DEVICE_TABLE(of, s5l_spi_match);
++
++static struct platform_driver s5l_spi_driver = {
++	.driver = {
++		.name = "apple-s5l-spi",
++		.of_match_table = s5l_spi_match,
++	},
++	.probe = s5l_spi_probe,
++};
++module_platform_driver(s5l_spi_driver);
++
++MODULE_DESCRIPTION("Apple S5L-style SPI controller (A9/A10)");
++MODULE_AUTHOR("Corellium LLC");
++MODULE_LICENSE("GPL");
+--- a/drivers/spi/Kconfig
++++ b/drivers/spi/Kconfig
+@@ -118,6 +118,13 @@
+ 	  communication controller), which is available on platforms such as
+ 	  Amlogic A4 SoCs.
+ 
++config SPI_APPLE_S5L
++	tristate "Apple S5L-style SPI controller (A9/A10)"
++	depends on ARCH_APPLE || COMPILE_TEST
++	help
++	  SPI controller found in older Apple SoCs such as the A10 (T8010),
++	  used for example for the touch screen of the iPhone 7.
++
+ config SPI_APPLE
+ 	tristate "Apple SoC SPI Controller platform driver"
+ 	depends on ARCH_APPLE || COMPILE_TEST
+--- a/drivers/spi/Makefile
++++ b/drivers/spi/Makefile
+@@ -23,6 +23,7 @@
+ obj-$(CONFIG_SPI_AMLOGIC_SPIFC_A4)	+= spi-amlogic-spifc-a4.o
+ obj-$(CONFIG_SPI_AMLOGIC_SPISG)		+= spi-amlogic-spisg.o
+ obj-$(CONFIG_SPI_APPLE)			+= spi-apple.o
++obj-$(CONFIG_SPI_APPLE_S5L)		+= spi-apple-s5l.o
+ obj-$(CONFIG_SPI_AR934X)		+= spi-ar934x.o
+ obj-$(CONFIG_SPI_ARMADA_3700)		+= spi-armada-3700.o
+ obj-$(CONFIG_SPI_ASPEED_SMC)		+= spi-aspeed-smc.o

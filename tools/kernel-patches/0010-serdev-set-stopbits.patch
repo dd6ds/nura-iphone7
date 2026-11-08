@@ -1,0 +1,78 @@
+--- a/include/linux/serdev.h
++++ b/include/linux/serdev.h
+@@ -89,6 +89,7 @@
+ 	void (*close)(struct serdev_controller *);
+ 	void (*set_flow_control)(struct serdev_controller *, bool);
+ 	int (*set_parity)(struct serdev_controller *, enum serdev_parity);
++	int (*set_stopbits)(struct serdev_controller *, unsigned int);
+ 	unsigned int (*set_baudrate)(struct serdev_controller *, unsigned int);
+ 	void (*wait_until_sent)(struct serdev_controller *, long);
+ 	int (*get_tiocm)(struct serdev_controller *);
+@@ -300,6 +301,8 @@
+ 		return serdev_device_set_tiocm(serdev, 0, TIOCM_RTS);
+ }
+ 
++int serdev_device_set_stopbits(struct serdev_device *serdev,
++			       unsigned int stopbits);
+ int serdev_device_set_parity(struct serdev_device *serdev,
+ 			     enum serdev_parity parity);
+ 
+--- a/drivers/tty/serdev/core.c
++++ b/drivers/tty/serdev/core.c
+@@ -350,6 +350,18 @@
+ }
+ EXPORT_SYMBOL_GPL(serdev_device_set_parity);
+ 
++int serdev_device_set_stopbits(struct serdev_device *serdev,
++			       unsigned int stopbits)
++{
++	struct serdev_controller *ctrl = serdev->ctrl;
++
++	if (!ctrl || !ctrl->ops->set_stopbits)
++		return -EOPNOTSUPP;
++
++	return ctrl->ops->set_stopbits(ctrl, stopbits);
++}
++EXPORT_SYMBOL_GPL(serdev_device_set_stopbits);
++
+ void serdev_device_wait_until_sent(struct serdev_device *serdev, long timeout)
+ {
+ 	struct serdev_controller *ctrl = serdev->ctrl;
+--- a/drivers/tty/serdev/serdev-ttyport.c
++++ b/drivers/tty/serdev/serdev-ttyport.c
+@@ -184,6 +184,27 @@
+ 	tty_set_termios(tty, &ktermios);
+ }
+ 
++static int ttyport_set_stopbits(struct serdev_controller *ctrl,
++				unsigned int stopbits)
++{
++	struct serport *serport = serdev_controller_get_drvdata(ctrl);
++	struct tty_struct *tty = serport->tty;
++	struct ktermios ktermios = tty->termios;
++
++	if (stopbits != 1 && stopbits != 2)
++		return -EINVAL;
++
++	if (stopbits == 2)
++		ktermios.c_cflag |= CSTOPB;
++	else
++		ktermios.c_cflag &= ~CSTOPB;
++
++	tty_set_termios(tty, &ktermios);
++
++	return (tty->termios.c_cflag & CSTOPB) == (ktermios.c_cflag & CSTOPB) ?
++		0 : -EINVAL;
++}
++
+ static int ttyport_set_parity(struct serdev_controller *ctrl,
+ 			      enum serdev_parity parity)
+ {
+@@ -255,6 +276,7 @@
+ 	.close = ttyport_close,
+ 	.set_flow_control = ttyport_set_flow_control,
+ 	.set_parity = ttyport_set_parity,
++	.set_stopbits = ttyport_set_stopbits,
+ 	.set_baudrate = ttyport_set_baudrate,
+ 	.wait_until_sent = ttyport_wait_until_sent,
+ 	.get_tiocm = ttyport_get_tiocm,

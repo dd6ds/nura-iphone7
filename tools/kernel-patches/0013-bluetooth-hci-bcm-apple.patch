@@ -1,0 +1,143 @@
+--- a/drivers/bluetooth/hci_bcm.c
++++ b/drivers/bluetooth/hci_bcm.c
+@@ -53,6 +53,8 @@
+  * struct bcm_device_data - device specific data
+  * @no_early_set_baudrate: Disallow set baudrate before driver setup()
+  * @drive_rts_on_open: drive RTS signal on ->open() when platform requires it
++ * @taurus_cal: device needs Apple 'Taurus' calibration blob
++ * @use_bdaddr_property: always take BD address from DT (local-bd-address)
+  * @no_uart_clock_set: UART clock set command for >3Mbps mode is unavailable
+  * @max_autobaud_speed: max baudrate supported by device in autobaud mode
+  * @max_speed: max baudrate supported
+@@ -60,6 +62,8 @@
+ struct bcm_device_data {
+ 	bool	no_early_set_baudrate;
+ 	bool	drive_rts_on_open;
++	bool	taurus_cal;
++	bool	use_bdaddr_property;
+ 	bool	no_uart_clock_set;
+ 	u32	max_autobaud_speed;
+ 	u32	max_speed;
+@@ -104,6 +108,9 @@
+  * @is_suspended: whether flow control is currently disabled
+  * @no_early_set_baudrate: don't set_baudrate before setup()
+  * @drive_rts_on_open: drive RTS signal on ->open() when platform requires it
++ * @use_bdaddr_property: always take BD address from DT (local-bd-address)
++ * @taurus_cal_blob: Apple 'Taurus' calibration blob (brcm,taurus-cal-blob)
++ * @taurus_cal_size: size of @taurus_cal_blob
+  * @no_uart_clock_set: UART clock set command for >3Mbps mode is unavailable
+  * @pcm_int_params: keep the initial PCM configuration
+  * @use_autobaud_mode: start Bluetooth device in autobaud mode
+@@ -145,6 +152,11 @@
+ #endif
+ 	bool			no_early_set_baudrate;
+ 	bool			drive_rts_on_open;
++	bool			use_bdaddr_property;
++
++	/* Apple: "Taurus"-Kalibrierblob aus der ADT (m1n1 -> brcm,taurus-cal-blob) */
++	const void		*taurus_cal_blob;
++	int			taurus_cal_size;
+ 	bool			no_uart_clock_set;
+ 	bool			use_autobaud_mode;
+ 	u8			pcm_int_params[5];
+@@ -577,6 +589,35 @@
+ 	return 0;
+ }
+ 
++#define BCM_TAURUS_CAL_CHUNK 0xe6
++struct bcm_taurus_cal_cmd {
++	u8 unk;
++	__le16 blocks_left;
++	u8 data[BCM_TAURUS_CAL_CHUNK];
++} __packed;
++
++static int bcm_send_taurus_cal(struct hci_uart *hu, const u8 *data, size_t size)
++{
++	size_t blocks = DIV_ROUND_UP(size, (size_t)BCM_TAURUS_CAL_CHUNK);
++	struct bcm_taurus_cal_cmd cmd;
++	struct sk_buff *skb;
++	size_t i, len;
++
++	bt_dev_info(hu->hdev, "sende %zu Byte Taurus-Kalibrierung", size);
++	for (i = 0; i < blocks; i++) {
++		len = min_t(size_t, size - i * BCM_TAURUS_CAL_CHUNK, BCM_TAURUS_CAL_CHUNK);
++		memset(&cmd, 0, sizeof(cmd));
++		cmd.unk = 0x03;
++		cmd.blocks_left = cpu_to_le16(blocks - i - 1);
++		memcpy(cmd.data, data + i * BCM_TAURUS_CAL_CHUNK, len);
++		skb = __hci_cmd_sync(hu->hdev, 0xfd97, sizeof(cmd), &cmd, HCI_INIT_TIMEOUT);
++		if (IS_ERR(skb))
++			return PTR_ERR(skb);
++		kfree_skb(skb);
++	}
++	return 0;
++}
++
+ static int bcm_setup(struct hci_uart *hu)
+ {
+ 	struct bcm_data *bcm = hu->priv;
+@@ -634,6 +675,13 @@
+ 		btbcm_write_pcm_int_params(hu->hdev, &params);
+ 	}
+ 
++	if (bcm->dev && bcm->dev->taurus_cal_blob) {
++		err = bcm_send_taurus_cal(hu, bcm->dev->taurus_cal_blob,
++					  bcm->dev->taurus_cal_size);
++		if (err)	/* nicht fatal: Funk geht auch unkalibriert */
++			bt_dev_warn(hu->hdev, "Taurus-Kalibrierung fehlgeschlagen: %d", err);
++	}
++
+ 	err = btbcm_finalize(hu->hdev, &fw_load_done, use_autobaud_mode);
+ 	if (err)
+ 		return err;
+@@ -642,7 +690,8 @@
+ 	 * Allow the bootloader to set a valid address through the
+ 	 * device tree.
+ 	 */
+-	if (hci_test_quirk(hu->hdev, HCI_QUIRK_INVALID_BDADDR))
++	if (hci_test_quirk(hu->hdev, HCI_QUIRK_INVALID_BDADDR) ||
++	    (bcm->dev && bcm->dev->use_bdaddr_property))
+ 		hci_set_quirk(hu->hdev, HCI_QUIRK_USE_BDADDR_PROPERTY);
+ 
+ 	if (!bcm_request_irq(bcm))
+@@ -1229,6 +1278,9 @@
+ 	device_property_read_u8_array(bdev->dev, "brcm,bt-pcm-int-params",
+ 				      bdev->pcm_int_params, 5);
+ 	bdev->irq = of_irq_get_byname(bdev->dev->of_node, "host-wakeup");
++	bdev->taurus_cal_blob = of_get_property(bdev->dev->of_node,
++						"brcm,taurus-cal-blob",
++						&bdev->taurus_cal_size);
+ 	bdev->irq_active_low = irq_get_trigger_type(bdev->irq)
+ 			     & (IRQ_TYPE_EDGE_FALLING | IRQ_TYPE_LEVEL_LOW);
+ 	return 0;
+@@ -1548,6 +1600,9 @@
+ 		bcmdev->max_autobaud_speed = data->max_autobaud_speed;
+ 		bcmdev->no_early_set_baudrate = data->no_early_set_baudrate;
+ 		bcmdev->drive_rts_on_open = data->drive_rts_on_open;
++		bcmdev->use_bdaddr_property = data->use_bdaddr_property;
++		if (!data->taurus_cal)
++			bcmdev->taurus_cal_blob = NULL;
+ 		bcmdev->no_uart_clock_set = data->no_uart_clock_set;
+ 		if (data->max_speed && bcmdev->oper_speed > data->max_speed)
+ 			bcmdev->oper_speed = data->max_speed;
+@@ -1580,6 +1635,12 @@
+ 	.max_autobaud_speed = 921600,
+ };
+ 
++static struct bcm_device_data bcm4355_apple_device_data = {
++	.drive_rts_on_open = true,
++	.taurus_cal = true,
++	.use_bdaddr_property = true,
++};
++
+ static const struct of_device_id bcm_bluetooth_of_match[] = {
+ 	{ .compatible = "brcm,bcm20702a1" },
+ 	{ .compatible = "brcm,bcm4329-bt" },
+@@ -1592,6 +1653,7 @@
+ 	{ .compatible = "brcm,bcm4349-bt", .data = &bcm43438_device_data },
+ 	{ .compatible = "brcm,bcm43540-bt", .data = &bcm4354_device_data },
+ 	{ .compatible = "brcm,bcm4335a0" },
++	{ .compatible = "brcm,bcm4355c0-bt-apple", .data = &bcm4355_apple_device_data },
+ 	{ .compatible = "cypress,cyw4373a0-bt", .data = &cyw4373a0_device_data },
+ 	{ .compatible = "infineon,cyw55572-bt", .data = &cyw55572_device_data },
+ 	{ },

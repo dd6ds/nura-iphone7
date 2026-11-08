@@ -1,0 +1,16 @@
+# Bluetooth iPhone 7 (d101) – Befunde 2026-11-07
+
+- Chip: BCM4355C0 (BT-Teil des WLAN/BT-Kombimoduls "Elsa", Hersteller USI).
+- Anschluss laut ADT: **uart1** (0x20a0c4000, IRQ 219) – nicht uart4 (dort hängt nur der wlan-ADT-Knoten).
+  - function-tx GPIO 0x60 (96), function-rts GPIO 0x62 (98) → Pinmux Funktion 1
+  - function-bt_wake AP-GPIO 0x57 (87), function-power_enable PMU-GPIO 8
+  - transport-speed 3000000 (Samsung-UART bei 24 MHz kann max. 1,5 Mbaud → max-speed 1500000, wie Sandcastle)
+  - bluetooth-taurus-calibration = syscfg/BCAL, tx/rx-calibration syscfg/BTTx, BTRx
+  - BD-Adresse: /chosen mac-address-bluetooth0 (m1n1 setzt local-bd-address über Alias bluetooth0)
+- Firmware: iOS bettet die .hcd-Patches ins BlueTool-Binary ein (usr/sbin/BlueTool, iOS 13.3.1).
+  research/tools/hcd_scan.py findet 80+ Blobs; "BCM4355C0 Elsa USI MCC" = 90495 Byte → tools/bt-fw.sh.
+- Kernel: hci_bcm + compatible brcm,bcm4355c0-bt-apple (Patch 0013), Taurus-Kalibrierung nach
+  HoolockLinux tests/bluetooth (HCI 0xfd97, 0xe6-Blöcke), hier nicht fatal. DT Patch 0014.
+- m1n1: Patch 0002 sucht /arm-io/uartN/bluetooth (für brcm,taurus-cal-blob).
+- Offen: btbcm kennt die Subversion des 4355C0 nicht → Firmware heißt BCM.hcd (+BCM4355C0.hcd);
+  nach dem ersten Lauf Subversion aus dmesg ablesen und ggf. in btbcm-Tabelle eintragen.

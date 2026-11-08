@@ -1,0 +1,204 @@
+--- a/drivers/clk/clk-apple-touch.c
++++ b/drivers/clk/clk-apple-touch.c
+@@ -0,0 +1,176 @@
++// SPDX-License-Identifier: GPL-2.0
++/*
++ * Apple PMGR touch controller clock (A9/A10, "TCLK").
++ *
++ * One PMGR register (child of the PMGR syscon): bit 31 = disable,
++ * bit 19 = enable, bit 18 = busy, bits 9..0 = divider from the parent.
++ *
++ *   pmgr: power-management@20e000000 {
++ *       touch_clk: clock-controller@78000 {
++ *           compatible = "apple,t8010-touch-clk";
++ *           reg = <0x78000 0x8>;
++ *           clocks = <&clkref>;
++ *           #clock-cells = <0>;
++ *           clock-frequency = <32768>;
++ *       };
++ *   };
++ *
++ * Ported from the Project Sandcastle "clk-hx-pmgr" touch clock,
++ * Copyright (C) 2020 Corellium LLC.
++ */
++#include <linux/clk-provider.h>
++#include <linux/delay.h>
++#include <linux/mfd/syscon.h>
++#include <linux/module.h>
++#include <linux/of.h>
++#include <linux/platform_device.h>
++#include <linux/regmap.h>
++
++#define TOUCH_CLK_DISABLE	BIT(31)
++#define TOUCH_CLK_ENABLE	BIT(19)
++#define TOUCH_CLK_BUSY		BIT(18)
++#define TOUCH_CLK_DIV_MASK	GENMASK(9, 0)
++
++struct apple_touch_clk {
++	struct clk_hw hw;
++	struct regmap *map;
++	u32 off;
++	u32 freq_target;
++};
++
++#define to_touch_clk(_hw) container_of(_hw, struct apple_touch_clk, hw)
++
++static u32 tc_read(struct apple_touch_clk *tc)
++{
++	u32 val = 0;
++
++	regmap_read(tc->map, tc->off, &val);
++	return val;
++}
++
++static void tc_write(struct apple_touch_clk *tc, u32 val)
++{
++	regmap_write(tc->map, tc->off, val);
++}
++
++static int touch_clk_wait_idle(struct apple_touch_clk *tc)
++{
++	unsigned int max = 5000;
++
++	while (max--) {
++		if (!(tc_read(tc) & TOUCH_CLK_BUSY))
++			return 0;
++		udelay(10);
++	}
++	return -ETIMEDOUT;
++}
++
++static int touch_clk_enable(struct clk_hw *hw)
++{
++	struct apple_touch_clk *tc = to_touch_clk(hw);
++	unsigned long parent = clk_hw_get_rate(clk_hw_get_parent(hw));
++	u32 div = (parent + tc->freq_target / 2) / tc->freq_target;
++	u32 val;
++
++	div = clamp_t(u32, div, 1, TOUCH_CLK_DIV_MASK);
++
++	val = tc_read(tc) & ~TOUCH_CLK_DISABLE;
++	tc_write(tc, val);
++	val &= ~TOUCH_CLK_DIV_MASK;
++	val |= TOUCH_CLK_ENABLE | div;
++	tc_write(tc, val);
++
++	if (touch_clk_wait_idle(tc)) {
++		pr_err("%s: failed to enable touch clock\n", clk_hw_get_name(hw));
++		return -ETIMEDOUT;
++	}
++	return 0;
++}
++
++static void touch_clk_disable(struct clk_hw *hw)
++{
++	struct apple_touch_clk *tc = to_touch_clk(hw);
++
++	tc_write(tc, tc_read(tc) & ~TOUCH_CLK_ENABLE);
++	if (touch_clk_wait_idle(tc))
++		pr_err("%s: failed to disable touch clock\n", clk_hw_get_name(hw));
++	tc_write(tc, tc_read(tc) | TOUCH_CLK_DISABLE);
++	udelay(100);
++}
++
++static int touch_clk_is_enabled(struct clk_hw *hw)
++{
++	u32 val = tc_read(to_touch_clk(hw));
++
++	return (val & TOUCH_CLK_ENABLE) && !(val & TOUCH_CLK_DISABLE);
++}
++
++static unsigned long touch_clk_recalc_rate(struct clk_hw *hw, unsigned long parent)
++{
++	struct apple_touch_clk *tc = to_touch_clk(hw);
++	u32 div = tc_read(tc) & TOUCH_CLK_DIV_MASK;
++
++	return div ? parent / div : tc->freq_target;
++}
++
++static const struct clk_ops touch_clk_ops = {
++	.enable		= touch_clk_enable,
++	.disable	= touch_clk_disable,
++	.is_enabled	= touch_clk_is_enabled,
++	.recalc_rate	= touch_clk_recalc_rate,
++};
++
++static int apple_touch_clk_probe(struct platform_device *pdev)
++{
++	struct device *dev = &pdev->dev;
++	struct device_node *np = dev->of_node;
++	struct clk_init_data init = {};
++	struct clk_parent_data pdata = { .index = 0 };
++	struct apple_touch_clk *tc;
++	int ret;
++
++	tc = devm_kzalloc(dev, sizeof(*tc), GFP_KERNEL);
++	if (!tc)
++		return -ENOMEM;
++
++	tc->map = syscon_node_to_regmap(dev->parent->of_node);
++	if (IS_ERR(tc->map))
++		return dev_err_probe(dev, PTR_ERR(tc->map), "no PMGR regmap\n");
++
++	if (of_property_read_u32_index(np, "reg", 0, &tc->off))
++		return dev_err_probe(dev, -EINVAL, "missing reg\n");
++
++	if (of_property_read_u32(np, "clock-frequency", &tc->freq_target))
++		tc->freq_target = 32768;
++
++	init.name = np->name;
++	of_property_read_string(np, "clock-output-names", &init.name);
++	init.ops = &touch_clk_ops;
++	init.parent_data = &pdata;
++	init.num_parents = 1;
++	tc->hw.init = &init;
++
++	ret = devm_clk_hw_register(dev, &tc->hw);
++	if (ret)
++		return ret;
++
++	return devm_of_clk_add_hw_provider(dev, of_clk_hw_simple_get, &tc->hw);
++}
++
++static const struct of_device_id apple_touch_clk_match[] = {
++	{ .compatible = "apple,t8010-touch-clk" },
++	{ }
++};
++MODULE_DEVICE_TABLE(of, apple_touch_clk_match);
++
++static struct platform_driver apple_touch_clk_driver = {
++	.driver = {
++		.name = "apple-touch-clk",
++		.of_match_table = apple_touch_clk_match,
++	},
++	.probe = apple_touch_clk_probe,
++};
++module_platform_driver(apple_touch_clk_driver);
++
++MODULE_DESCRIPTION("Apple PMGR touch controller clock (A9/A10)");
++MODULE_LICENSE("GPL");
+--- a/drivers/clk/Kconfig
++++ b/drivers/clk/Kconfig
+@@ -58,6 +58,12 @@
+ 	  Say yes here to build support for Texas Instruments' LMK04832 Ultra
+ 	  Low-Noise JESD204B Compliant Clock Jitter Cleaner With Dual Loop PLLs
+ 
++config COMMON_CLK_APPLE_TOUCH
++	tristate "Apple PMGR touch controller clock (A9/A10)"
++	depends on ARCH_APPLE || COMPILE_TEST
++	help
++	  Clock for the multi-touch controller of iPhones with A9/A10 SoCs.
++
+ config COMMON_CLK_APPLE_NCO
+ 	tristate "Clock driver for Apple SoC NCOs"
+ 	depends on ARCH_APPLE || COMPILE_TEST
+--- a/drivers/clk/Makefile
++++ b/drivers/clk/Makefile
+@@ -45,6 +45,7 @@
+ # hardware specific clock types
+ # please keep this section sorted lexicographically by file path name
+ obj-$(CONFIG_COMMON_CLK_APPLE_NCO)  	+= clk-apple-nco.o
++obj-$(CONFIG_COMMON_CLK_APPLE_TOUCH)	+= clk-apple-touch.o
+ obj-$(CONFIG_MACH_ASM9260)		+= clk-asm9260.o
+ obj-$(CONFIG_COMMON_CLK_AXI_CLKGEN)	+= clk-axi-clkgen.o
+ obj-$(CONFIG_ARCH_AXXIA)		+= clk-axm5516.o

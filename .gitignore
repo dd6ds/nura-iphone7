@@ -1,0 +1,68 @@
+# ---------------------------------------------------------------------------
+# iphone-se-nura – was NICHT ins Repository gehört
+#   1. Build-Ergebnisse und Werkzeug-Umgebungen (werden neu erzeugt)
+#   2. Fremd-Repositories/Quellbäume (holt build.sh bzw. die Tools selbst)
+#   3. Apple-Firmware, iOS-Images und gerätespezifische Daten:
+#      urheberrechtlich geschützt bzw. persönlich (Seriennummern, MAC-Adressen,
+#      Kalibrierdaten, Partitionstabellen) – niemals veröffentlichen!
+# ---------------------------------------------------------------------------
+
+# --- 1. Build-Ergebnisse / Umgebungen ---------------------------------------
+.venv/
+__pycache__/
+*.pyc
+out/
+*.bak
+*.bak-*
+build.sh.bak-console
+*.log
+*.o
+*.ko
+
+# --- 2. Fremd-Repositories / Quellbäume ---------------------------------------
+src/m1n1/
+src/asahi-installer/
+src/lk/
+src/psc/
+src/SSHRD_Script/
+src/hl-docs/
+src/sandcastle/
+src/sc/
+# Hoolock-Kernel (Testbaum, ~1,8 GB) – wird aus dem Hoolock-Tarball + tools/kernel-patches erzeugt
+src/kpatch/linux-hoolock-*/
+research/hoolock/docs/
+
+# --- 3. Apple-Firmware, iOS-Daten, gerätespezifische Daten ---------------------
+research/ios13/
+research/ipsw/
+research/kernelcache*
+research/rootfs.mtree.*
+research/firmware/
+research/live/
+research/d101ap.adt
+research/d101ap-adt.txt
+research/gpt-backup/
+research/maggie/*.bin
+research/maggie/*.im4p
+research/maggie/*.dis
+tools/ios/
+*.im4p
+*.img4
+*.ipsw
+*.dmg
+*.hcd
+*.trx
+*.clmb
+*.txcb
+*.mtprops
+*.adt
+*.macho
+
+# Editor/OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
+
+# Binaries
+*.so

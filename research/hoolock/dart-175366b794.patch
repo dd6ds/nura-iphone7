@@ -1,0 +1,38 @@
+From 175366b7944ba43921eeb2301b1268aeb76a05bd Mon Sep 17 00:00:00 2001
+From: Nick Chan <towinchenmi@gmail.com>
+Date: Mon, 29 Jun 2026 00:25:17 +0800
+Subject: [PATCH] dt-bindings: iommu: apple,dart: Add apple,dma-range property
+
+Add apple,dma-range property to describe the DMA aperture of a device.
+
+Signed-off-by: Nick Chan <towinchenmi@gmail.com>
+---
+ Documentation/devicetree/bindings/iommu/apple,dart.yaml | 8 ++++++++
+ 1 file changed, 8 insertions(+)
+
+diff --git a/Documentation/devicetree/bindings/iommu/apple,dart.yaml b/Documentation/devicetree/bindings/iommu/apple,dart.yaml
+index 47ec7fa52c3ac6..06346de28c3015 100644
+--- a/Documentation/devicetree/bindings/iommu/apple,dart.yaml
++++ b/Documentation/devicetree/bindings/iommu/apple,dart.yaml
+@@ -52,6 +52,13 @@ properties:
+   power-domains:
+     maxItems: 1
+ 
++  apple,dma-range:
++    $ref: /schemas/types.yaml#/definitions/uint64-array
++    description:
++      DMA aperture of the device. The first item is the starting address
++      and the second item is the size of the aperture.
++    maxItems: 2
++
+ required:
+   - compatible
+   - reg
+@@ -67,6 +74,7 @@ examples:
+       reg = <0x82f80000 0x4000>;
+       interrupts = <1 781 4>;
+       #iommu-cells = <1>;
++      apple,dma-range = <0xf 0x00000000 0x0 0xfc000000>;
+     };
+ 
+     master1 {

@@ -1,0 +1,107 @@
+--- a/arch/arm64/boot/dts/apple/t8010.dtsi
++++ b/arch/arm64/boot/dts/apple/t8010.dtsi
+@@ -271,9 +271,12 @@
+ 			      <0x6 0x02000000 0x0 0x4000>,
+ 			      <0x6 0x03000000 0x0 0x4000>,
+ 			      <0x6 0x04000000 0x0 0x4000>,
+-			      <0x6 0x03008000 0x0 0x4000>;
++			      <0x6 0x03008000 0x0 0x4000>,
++			      <0x6 0x01008000 0x0 0x4000>,
++			      <0x6 0x01004000 0x0 0x4000>;
+ 			reg-names = "config", "phy0", "phy1", "phy2", "glue",
+-				    "port0", "port1", "port2", "port3", "dart2";
++				    "port0", "port1", "port2", "port3", "dart2",
++				    "dart0", "sart0";
+ 			interrupt-parent = <&aic>;
+ 			interrupts = <AIC_IRQ 270 IRQ_TYPE_LEVEL_HIGH>,
+ 				     <AIC_IRQ 273 IRQ_TYPE_LEVEL_HIGH>,
+@@ -297,6 +300,18 @@
+ 			status = "disabled";
+ 		};
+ 
++		spi1: spi@20a084000 {
++			compatible = "apple,t8010-spi";
++			reg = <0x2 0x0a084000 0x0 0x4000>;
++			clocks = <&clkref>;
++			interrupt-parent = <&aic>;
++			interrupts = <AIC_IRQ 215 IRQ_TYPE_LEVEL_HIGH>;
++			power-domains = <&ps_spi1>;
++			#address-cells = <1>;
++			#size-cells = <0>;
++			status = "disabled";
++		};
++
+ 		spi2: spi@20a088000 {
+ 			compatible = "apple,t8010-spi";
+ 			reg = <0x2 0x0a088000 0x0 0x4000>;
+--- a/arch/arm64/boot/dts/apple/t8010-7.dtsi
++++ b/arch/arm64/boot/dts/apple/t8010-7.dtsi
+@@ -164,6 +164,27 @@
+ &pcie {
+ 	status = "okay";
+ 
++	/* Port 0: interner Speicher (S3E/ANS2-NVMe, ADT pci-bridge0/s3e) */
++	port00: pci@0,0 {
++		device_type = "pci";
++		reg = <0x0 0x0 0x0 0x0 0x0>;
++		reset-gpios = <&pinctrl_ap 12 GPIO_ACTIVE_LOW>;
++		max-link-speed = <3>;
++		bus-range = <1 1>;
++		/* ADT nvme-mmu0 sart-region / sart-virtual-base: IOVA PA(hi lo) Größe */
++		apple,sart = <0xbc000000 0x8 0x7ee00000 0x1200000>;
++		#address-cells = <3>;
++		#size-cells = <2>;
++		ranges;
++
++		nvme@0,0 {
++			compatible = "pci106b,2002";
++			reg = <0x10000 0x0 0x0 0x0 0x0>;
++			/* ADT s3e nvme-scratch-virt-region: IOVA Größe */
++			apple,nvme-scratch = <0xbc000000 0x1200000>;
++		};
++	};
++
+ 	/* Port 2: WLAN (BCM4355, ADT pci-bridge2/wlan) */
+ 	port02: pci@2,0 {
+ 		device_type = "pci";
+@@ -173,7 +194,7 @@
+ 		power-gpios = <&pinctrl_ap 88 GPIO_ACTIVE_HIGH>,
+ 			      <&pmic_gpio 10 GPIO_ACTIVE_HIGH>;
+ 		max-link-speed = <1>;
+-		bus-range = <1 1>;
++		bus-range = <2 2>;
+ 		#address-cells = <3>;
+ 		#size-cells = <2>;
+ 		ranges;
+@@ -181,7 +202,7 @@
+ 		/* MAC (local-mac-address) und brcm,cal-blob trägt m1n1 aus der ADT ein */
+ 		wifi0: wifi@0,0 {
+ 			compatible = "pci14e4,43dc";
+-			reg = <0x10000 0x0 0x0 0x0 0x0>;
++			reg = <0x20000 0x0 0x0 0x0 0x0>;
+ 			brcm,board-type = "apple,elsa";
+ 			/* iPhone-ADT hat keine Antennen-SKU; Platzhalter aktiviert in brcmfmac die
+ 			 * Apple-Firmwareauswahl über die OTP-Daten (Modul/Hersteller/Version) */
+@@ -223,3 +244,22 @@
+ 		local-bd-address = [00 00 00 00 00 00];
+ 	};
+ };
++
++/* Audio (Test): ADT spi1 – audio-codec (CS42L71) an CS0 = GPIO 0x83,
++ * maggie-arc (Lattice iCE5LP4K) an CS1 = GPIO 0xb1. Zugriff per spidev. */
++&spi1 {
++	status = "okay";
++	cs-gpios = <&pinctrl_ap 131 GPIO_ACTIVE_HIGH>, <&pinctrl_ap 177 GPIO_ACTIVE_HIGH>;
++
++	audio_codec_spi: spidev@0 {
++		compatible = "rohm,dh2228fv";
++		reg = <0>;
++		spi-max-frequency = <2500000>;
++	};
++
++	maggie_spi: maggie@1 {
++		compatible = "rohm,dh2228fv";
++		reg = <1>;
++		spi-max-frequency = <4000000>;
++	};
++};

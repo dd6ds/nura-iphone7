@@ -1,0 +1,15 @@
+[Unit]
+Description=USB-Ladestrom für den Ladechip Tigris setzen (iPhone 7)
+After=systemd-modules-load.service
+ConditionPathExists=/dev/i2c-1
+# Kernel-Treiber apple-tigris aktiv -> der regelt selbst, Userspace-Daemon nicht starten
+ConditionPathExists=!/sys/bus/i2c/drivers/apple-tigris/1-0075
+
+[Service]
+ExecStart=/usr/bin/python3 /usr/local/sbin/tigris-charge
+Restart=always
+RestartSec=5
+Environment=TIGRIS_MAX_MA=900 TIGRIS_START_MA=500
+
+[Install]
+WantedBy=multi-user.target

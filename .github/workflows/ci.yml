@@ -1,0 +1,120 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+env:
+  HOOLOCK_URL: https://github.com/HoolockLinux/linux/archive/refs/tags/hoolock-7.0.12.tar.gz
+  M1N1_GIT: https://github.com/HoolockLinux/m1n1
+
+jobs:
+  lint:
+    name: Lint (shell + python)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install shellcheck
+        run: sudo apt-get update && sudo apt-get install -y shellcheck
+      - name: bash -n (syntax)
+        run: |
+          set -e
+          find . -name '*.sh' -not -path './.git/*' -print0 | xargs -0 -n1 bash -n
+      - name: shellcheck (errors only)
+        run: |
+          find . -name '*.sh' -not -path './.git/*' -print0 \
+            | xargs -0 shellcheck -S error
+      - name: python compile
+        run: |
+          find . -name '*.py' -not -path './.git/*' -print0 \
+            | xargs -0 -r python3 -m py_compile
+
+  m1n1-patches:
+    name: m1n1 patches apply
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Clone m1n1 and apply patches
+        run: |
+          set -e
+          git clone -q --depth 1 "$M1N1_GIT" m1n1
+          cd m1n1
+          for p in ../tools/m1n1-patches/*.patch; do
+            echo "== $p"
+            git apply --check "$p"
+            git apply "$p"
+          done
+
+  kernel:
+    name: Kernel patches + DTBs + driver objects
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu flex bison bc libssl-dev \
+            libelf-dev device-tree-compiler cpio kmod
+      - name: Fetch Hoolock kernel source
+        run: |
+          set -e
+          curl -fsSL "$HOOLOCK_URL" -o linux.tar.gz
+          mkdir linux && tar -xzf linux.tar.gz -C linux --strip-components=1
+      - name: Apply kernel patches
+        working-directory: linux
+        run: |
+          set -e
+          for p in ../tools/kernel-patches/*.patch; do
+            echo "== $p"
+            patch -p1 --forward --batch < "$p"
+          done
+      - name: Configure
+        working-directory: linux
+        env:
+          ARCH: arm64
+          CROSS_COMPILE: aarch64-linux-gnu-
+        run: |
+          set -e
+          make defconfig
+          scripts/config -e ARCH_APPLE -e PCI -e PCI_MSI -e SERIAL_DEV_BUS \
+            -e SERIAL_SAMSUNG --set-val SERIAL_SAMSUNG_UARTS 8 \
+            -e SPI -e SPI_APPLE_S5L -e PCIE_APPLE_T8010 -e GPIO_APPLE_PMIC \
+            -e COMMON_CLK_APPLE_TOUCH -e REGULATOR_APPLE_PMIC_SWITCH -e TOUCHSCREEN_HX \
+            -e POWER_SUPPLY -e CHARGER_APPLE_TIGRIS \
+            -e BT -e BT_HCIUART -e BT_HCIUART_SERDEV -e BT_HCIUART_BCM \
+            -e BLK_DEV_NVME
+          make olddefconfig
+          for s in ARCH_APPLE PCIE_APPLE_T8010 CHARGER_APPLE_TIGRIS BT_HCIUART_BCM BLK_DEV_NVME; do
+            grep -E "^CONFIG_$s=" .config || echo "::warning::CONFIG_$s not enabled"
+          done
+      - name: Build t8010 DTBs
+        working-directory: linux
+        env:
+          ARCH: arm64
+          CROSS_COMPILE: aarch64-linux-gnu-
+        run: |
+          set -e
+          make -j"$(nproc)" $(cd arch/arm64/boot/dts && ls apple/t8010-*.dts | sed 's/\.dts$/.dtb/')
+      - name: Build patched driver objects (W=1)
+        working-directory: linux
+        env:
+          ARCH: arm64
+          CROSS_COMPILE: aarch64-linux-gnu-
+        run: |
+          set -e
+          make -j"$(nproc)" prepare
+          objs=""
+          for o in drivers/power/supply/apple-tigris.o drivers/pci/controller/pcie-apple-t8010.o \
+                   drivers/nvme/host/pci.o drivers/nvme/host/core.o drivers/bluetooth/hci_bcm.o \
+                   drivers/tty/serdev/core.o drivers/tty/serdev/serdev-ttyport.o \
+                   drivers/spi/spi-apple-s5l.o drivers/input/touchscreen/hx-touch.o \
+                   drivers/gpio/gpio-apple-pmic.o; do
+            [ -f "${o%.o}.c" ] && objs="$objs $o" || echo "::notice::skip $o (no source)"
+          done
+          make -j"$(nproc)" W=1 $objs
+      - name: Upload DTBs
+        uses: actions/upload-artifact@v4
+        with:
+          name: t8010-dtbs
+          path: linux/arch/arm64/boot/dts/apple/t8010-*.dtb
