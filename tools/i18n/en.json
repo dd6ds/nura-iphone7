@@ -716,5 +716,14 @@
  "echo \"== nachher\"; show 0x20a004000; show 0x210540000": "echo \"== after\"; show 0x20a004000; show 0x210540000",
  "# Test: Codec-Ports laut ADT (hawk_active/asp_active = i2sA('pin2')) -> AP-Schalter Pin 2 freigeben": "# Test: codec ports per ADT (hawk_active/asp_active = i2sA('pin2')) -> enable AP switch pin 2",
  "# (Index 17 = 0x20a004044) und pin2 <- aud0 (mca0, MCLK 12 MHz) bzw. aud0 <- pin2 routen,": "# (index 17 = 0x20a004044) and route pin2 <- aud0 (mca0, MCLK 12 MHz) or aud0 <- pin2,",
- "# danach PLL/RCO des CS42L71 prüfen (root, auf dem iPhone).": "# then check the CS42L71 PLL/RCO (root, on the iPhone)."
+ "# danach PLL/RCO des CS42L71 prüfen (root, auf dem iPhone).": "# then check the CS42L71 PLL/RCO (root, on the iPhone).",
+ "# mca0 und mca2 voll initialisieren (je 12 MHz), Routen setzen, dann PLL/RCO des CS42L71 prüfen (root, iPhone).": "# Fully initialise mca0 and mca2 (12 MHz each), set routes, then check the CS42L71 PLL/RCO (root, iPhone).",
+ "\"\"\"mca_init.py N [mclk_hz] – MCA N (A10, mca,s5l8950x) wie iOS AppleAE2MCA initialisieren (root).": "\"\"\"mca_init.py N [mclk_hz] – initialise MCA N (A10, mca,s5l8950x) like iOS AppleAE2MCA (root).",
+ "Schritte: PMGR-Power (0x80178+8N) an, NCO-Kanal N auf mclk (Standard 12 MHz), MCLK-Steuerung": "Steps: PMGR power (0x80178+8N) on, NCO channel N to mclk (default 12 MHz), MCLK control",
+ "(0x20a002000+4N) = 0x50 (Quelle nclk==f, Ausgang an), MCA-Reset (0x11=3, 0x12=1 bis Bit 0 = 0),": "(0x20a002000+4N) = 0x50 (source nclk==f, output on), MCA reset (0x11=3, 0x12=1 until bit 0 = 0),",
+ "Grundregister 4=0, 7=0xd, 0xc=0xd, 2 (16-bit-Rahmen), FIFO-Schwellen 8/0xd, Slot-Masken 9/0xe = 3,": "base registers 4=0, 7=0xd, 0xc=0xd, 2 (16-bit frame), FIFO thresholds 8/0xd, slot masks 9/0xe = 3,",
+ "Taktquellen 6/0xb, Freigabe 4=1, 0x10=0xb0003000, Sync/Start 3.": "clock sources 6/0xb, enable 4=1, 0x10=0xb0003000, sync/start 3.",
+ "Register = Basis 0x20a0a0000 + N*0x4000 + idx*4 (AppleAE2MCA 0x…644e6b4/e734).": "Register = base 0x20a0a0000 + N*0x4000 + idx*4 (AppleAE2MCA 0x…644e6b4/e734).",
+ "Vorsicht: Werte für 6/0xb/3 geschätzt (iOS berechnet sie aus der Stream-Konfiguration).\"\"\"": "Caution: values for 6/0xb/3 are estimates (iOS computes them from the stream configuration).\"\"\"",
+ "python3 $P/peek.py 0x20a004008 0x020202                        # pin2 <- aud2 (mca2)": "python3 $P/peek.py 0x20a004008 0x020202                        # pin2 <- aud2 (mca2)"
 }

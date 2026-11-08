@@ -280,3 +280,17 @@
 - Fazit für jetzt: ohne Messung am MCLK-Pin nicht weiter eingrenzbar. Nächste sinnvolle Schritte wären
   die vollständige MCA-Initialisierung (Reset 0x11/0x12, Freigabe 4, 0x10) für mca0 **und** mca2
   sowie NCO2 auf 12 MHz, oder ein Logikanalysator.
+
+### Option 1: volle MCA-Initialisierung (2026-11-08 20:35) – ohne Erfolg
+
+- `tools/mca_init.py N` (PMGR an, NCO N 12 MHz, ClkCon 0x50, Reset 0x11/0x12, Registerfolge wie
+  AppleAE2MCA, Freigabe 4/0x10/3) für **mca0 und mca2**; `tools/mca_codec_test.sh` zusätzlich Routen
+  (i2s_route.sh, pin2 <- aud2, Pin-2-Freigabe).
+- MCA-Register: Version 0x5, Reg1 0x00100010, Reg7 liest 0x80000400 (Status?). Nach dem Schreiben
+  lesen sich nur 4 (=1), 0xb (=8), 0xe (=3) zurück; 2/3/5/6/8/9/0xc/0xd/0x10 lesen 0 (nur schreibbar
+  oder nur bei laufendem Stream gültig).
+- PMGR mca2 = 0x80188 (war aus, 0xa00).
+- **Ergebnis: PLL der Codec-Brücke rastet nicht ein, RCO bleibt aus.**
+- Audio vorerst pausiert. Wiederaufnahme am besten mit Messung (Logikanalysator am Codec-MCLK) oder
+  mit einem echten Linux-MCA-Treiber, der einen Stream inkl. DMA startet (MCLK evtl. nur bei laufendem
+  Serialisierer).
