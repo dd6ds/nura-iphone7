@@ -803,5 +803,10 @@
  "echo \"-- Suche ${T} s …\"": "echo \"-- Scanning ${T} s …\"",
  "bluetoothctl devices | grep -i \"$MAC\" || echo \"(nicht gefunden – trotzdem Kopplung versuchen)\"": "bluetoothctl devices | grep -i \"$MAC\" || echo \"(not found – trying to pair anyway)\"",
  "echo \"-- Koppeln\"": "echo \"-- Pairing\"",
- "echo \"-- Verbinden\"": "echo \"-- Connecting\""
+ "echo \"-- Verbinden\"": "echo \"-- Connecting\"",
+ "PKGREL_BUMP=\"${PKGREL_BUMP:-118}\"   # r100 i2c/spidev, r101 Touch, r102 PCIe (ohne CONFIG_PCI), r103 PCIe/WLAN, r104 PCIe zur Laufzeit startbar + Schrittmeldungen, r105 PD-Liste-Fix, r106 Akku (Tigris + HDQ-Gauge), r107 Tigris-I2C Einzelbyte-Fix, r108 IBUSLIMIT-Reset abfangen, r109 Bluetooth (hci_bcm Apple/UART1), r110 Tigris-Rundung, r111 NVMe-Port 0 + Akku-Feinschliff, r112 NVMe ohne SGL + CID-Quirk, r113 NVMMU, r114 NVMe-Tags < 36, r115 nvme eingebaut (Root intern), r116 spi-s5l CS-Polarität (Maggie lädt), r117 spi-s5l SPI-Modus je Gerät (Codec Mode 0), r118 Bluetooth RFCOMM/BNEP/HIDP (Kopfhörer-HFP)": "PKGREL_BUMP=\"${PKGREL_BUMP:-118}\"   # r100 i2c/spidev, r101 touch, r102 PCIe (without CONFIG_PCI), r103 PCIe/Wi-Fi, r104 PCIe startable at runtime + step messages, r105 PD list fix, r106 battery (Tigris + HDQ gauge), r107 Tigris I2C single-byte fix, r108 catch IBUSLIMIT reset, r109 Bluetooth (hci_bcm Apple/UART1), r110 Tigris rounding, r111 NVMe port 0 + battery polish, r112 NVMe without SGL + CID quirk, r113 NVMMU, r114 NVMe tags < 36, r115 nvme built-in (internal root), r116 spi-s5l CS polarity (Maggie loads), r117 spi-s5l SPI mode per device (codec mode 0), r118 Bluetooth RFCOMM/BNEP/HIDP (headphone HFP)",
+ "\"CONFIG_BT_RFCOMM=m\"                   # HFP/HSP: Kopfhörer bauen zuerst RFCOMM auf, sonst trennt BlueZ": "\"CONFIG_BT_RFCOMM=m\"                   # HFP/HSP: headphones set up RFCOMM first, otherwise BlueZ disconnects",
+ "\"CONFIG_BT_BNEP=m\"                     # Bluetooth-Tethering (PAN)": "\"CONFIG_BT_BNEP=m\"                     # Bluetooth tethering (PAN)",
+ "\"CONFIG_BT_HIDP=m\"                     # Bluetooth-Tastaturen/-Mäuse (classic)": "\"CONFIG_BT_HIDP=m\"                     # Bluetooth keyboards/mice (classic)",
+ "\"CONFIG_UHID=m\"                        # Bluetooth-LE-Eingabegeräte (HoG über BlueZ)": "\"CONFIG_UHID=m\"                        # Bluetooth LE input devices (HoG via BlueZ)"
 }

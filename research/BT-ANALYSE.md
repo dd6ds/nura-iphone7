@@ -22,3 +22,6 @@
   → erster funktionierender Tonausgang (interner Lautsprecher noch nicht, siehe AUDIO-ANALYSE.md).
 - Werkzeuge: tools/bt_pair.sh (vom iPhone aus koppeln), tools/bt_agent.sh (iPhone sichtbar +
   automatisch bestätigen, nur eigene Geräte), tools/bt_audio_test.sh (verbinden + Testton).
+- r118 (Kernel #119): CONFIG_BT_RFCOMM/BNEP/HIDP + UHID. Vorher scheiterte das Verbinden mit Kopfhörern
+  ("socket(STREAM, RFCOMM): Protocol not supported" → BlueZ trennt). Jetzt: soundcore Space Q45 verbindet
+  normal, Profile a2dp_sink + handsfree_head_unit (HFP mit Mikrofon), Testton im Kopfhörer.
