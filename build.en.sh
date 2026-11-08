@@ -333,6 +333,13 @@ patch_charge() {
     sudo mkdir -p "$m/etc/systemd/system/multi-user.target.wants"
     sudo ln -sf ../tigris-charge.service "$m/etc/systemd/system/multi-user.target.wants/tigris-charge.service"
     c_ok "tigris-charge eingerichtet."
+    # Automatic brightness from the light sensor CT821 (I2C2 via /dev/mem, see research/SENSOR-ANALYSE.md)
+    c_info "Brightness: installing the nura-autobright service …"
+    sudo install -Dm755 "$SCRIPT_DIR/tools/nura-autobright.en.py" "$m/usr/local/sbin/nura-autobright"
+    sudo install -Dm644 "$SCRIPT_DIR/tools/i2c_poll.en.py" "$m/usr/local/sbin/nura_i2c.py"
+    sudo install -Dm644 "$SCRIPT_DIR/tools/nura-autobright.service" "$m/etc/systemd/system/nura-autobright.service"
+    sudo ln -sf ../nura-autobright.service "$m/etc/systemd/system/multi-user.target.wants/nura-autobright.service"
+    c_ok "nura-autobright set up."
 }
 
 patch_phosh() {

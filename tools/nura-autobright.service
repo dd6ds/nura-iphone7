@@ -1,0 +1,14 @@
+[Unit]
+Description=Automatische Display-Helligkeit über den Lichtsensor CT821 (iPhone 7)
+After=systemd-backlight@backlight:20e200080.backlight.service
+ConditionPathExists=/dev/mem
+# Ausschalten: systemctl disable --now nura-autobright
+
+[Service]
+ExecStart=/usr/bin/python3 /usr/local/sbin/nura-autobright
+Restart=always
+RestartSec=10
+Environment=NURA_BL_MIN=80 NURA_BL_PAUSE=300 NURA_LUX_MAX=20000
+
+[Install]
+WantedBy=multi-user.target
