@@ -82,7 +82,7 @@
  			brcm,board-type = "apple,elsa";
  			/* iPhone-ADT hat keine Antennen-SKU; Platzhalter aktiviert in brcmfmac die
  			 * Apple-Firmwareauswahl über die OTP-Daten (Modul/Hersteller/Version) */
-@@ -223,3 +244,22 @@
+@@ -223,3 +244,26 @@
  		local-bd-address = [00 00 00 00 00 00];
  	};
  };
@@ -92,6 +92,8 @@
 +&spi1 {
 +	status = "okay";
 +	cs-gpios = <&pinctrl_ap 131 GPIO_ACTIVE_HIGH>, <&pinctrl_ap 177 GPIO_ACTIVE_HIGH>;
++	/* ADT: Codec Mode 0, Maggie Mode 3 – Modus je Gerät beachten */
++	apple,honor-spi-mode;
 +
 +	audio_codec_spi: spidev@0 {
 +		compatible = "rohm,dh2228fv";
@@ -103,5 +105,7 @@
 +		compatible = "rohm,dh2228fv";
 +		reg = <1>;
 +		spi-max-frequency = <4000000>;
++		spi-cpol;
++		spi-cpha;
 +	};
 +};

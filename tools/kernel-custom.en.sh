@@ -17,7 +17,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PMB="${PMB:-$SCRIPT_DIR/.venv/bin/pmbootstrap}"
 PKG="linux-postmarketos-apple-16k"
-PKGREL_BUMP="${PKGREL_BUMP:-115}"   # r100 i2c/spidev, r101 touch, r102 PCIe (without CONFIG_PCI), r103 PCIe/Wi-Fi, r104 PCIe startable at runtime + step messages, r105 PD list fix, r106 battery (Tigris + HDQ gauge), r107 Tigris I2C single-byte fix, r108 catch IBUSLIMIT reset, r109 Bluetooth (hci_bcm Apple/UART1), r110 Tigris rounding, r111 NVMe port 0 + battery polish, r112 NVMe without SGL + CID quirk, r113 NVMMU, r114 NVMe tags < 36, r115 nvme built-in (internal root)
+PKGREL_BUMP="${PKGREL_BUMP:-117}"   # r100 i2c/spidev, r101 touch, r102 PCIe (without CONFIG_PCI), r103 PCIe/Wi-Fi, r104 PCIe startable at runtime + step messages, r105 PD list fix, r106 battery (Tigris + HDQ gauge), r107 Tigris I2C single-byte fix, r108 catch IBUSLIMIT reset, r109 Bluetooth (hci_bcm Apple/UART1), r110 Tigris rounding, r111 NVMe port 0 + battery polish, r112 NVMe without SGL + CID quirk, r113 NVMMU, r114 NVMe tags < 36, r115 nvme built-in (internal root), r116 spi-s5l CS polarity (Maggie loads), r117 spi-s5l SPI mode per device (codec mode 0)
 PATCHDIR="$SCRIPT_DIR/tools/kernel-patches"
 
 # Additional kernel options (name=value)

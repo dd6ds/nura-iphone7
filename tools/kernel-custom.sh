@@ -17,7 +17,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PMB="${PMB:-$SCRIPT_DIR/.venv/bin/pmbootstrap}"
 PKG="linux-postmarketos-apple-16k"
-PKGREL_BUMP="${PKGREL_BUMP:-115}"   # r100 i2c/spidev, r101 Touch, r102 PCIe (ohne CONFIG_PCI), r103 PCIe/WLAN, r104 PCIe zur Laufzeit startbar + Schrittmeldungen, r105 PD-Liste-Fix, r106 Akku (Tigris + HDQ-Gauge), r107 Tigris-I2C Einzelbyte-Fix, r108 IBUSLIMIT-Reset abfangen, r109 Bluetooth (hci_bcm Apple/UART1), r110 Tigris-Rundung, r111 NVMe-Port 0 + Akku-Feinschliff, r112 NVMe ohne SGL + CID-Quirk, r113 NVMMU, r114 NVMe-Tags < 36, r115 nvme eingebaut (Root intern)
+PKGREL_BUMP="${PKGREL_BUMP:-117}"   # r100 i2c/spidev, r101 Touch, r102 PCIe (ohne CONFIG_PCI), r103 PCIe/WLAN, r104 PCIe zur Laufzeit startbar + Schrittmeldungen, r105 PD-Liste-Fix, r106 Akku (Tigris + HDQ-Gauge), r107 Tigris-I2C Einzelbyte-Fix, r108 IBUSLIMIT-Reset abfangen, r109 Bluetooth (hci_bcm Apple/UART1), r110 Tigris-Rundung, r111 NVMe-Port 0 + Akku-Feinschliff, r112 NVMe ohne SGL + CID-Quirk, r113 NVMMU, r114 NVMe-Tags < 36, r115 nvme eingebaut (Root intern), r116 spi-s5l CS-Polarität (Maggie lädt), r117 spi-s5l SPI-Modus je Gerät (Codec Mode 0)
 PATCHDIR="$SCRIPT_DIR/tools/kernel-patches"
 
 # Zusätzliche Kernel-Optionen (Name=Wert)

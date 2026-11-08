@@ -1,6 +1,6 @@
 --- a/drivers/spi/spi-apple-s5l.c
 +++ b/drivers/spi/spi-apple-s5l.c
-@@ -0,0 +1,308 @@
+@@ -0,0 +1,329 @@
 +// SPDX-License-Identifier: GPL-2.0
 +/*
 + * SPI controller of older Apple SoCs (S5L heritage, e.g. A10 / T8010).
@@ -30,6 +30,9 @@
 +#define  REG_CONFIG_IE_RXRDY		BIT(7)
 +#define  REG_CONFIG_IE_TXEMPTY		BIT(8)
 +#define  REG_CONFIG_SET			0x0010401E
++#define  REG_CONFIG_CPHA			BIT(1)
++#define  REG_CONFIG_CPOL			BIT(2)
++#define  REG_CONFIG_BASE			(REG_CONFIG_SET & ~(REG_CONFIG_CPHA | REG_CONFIG_CPOL))
 +#define REG_STATUS			0x08
 +#define  REG_STATUS_RXRDY		BIT(0)
 +#define  REG_STATUS_TXEMPTY		BIT(1)
@@ -62,6 +65,8 @@
 +	const u8 *tx_buf;
 +	u8 *rx_buf;
 +	unsigned int tx_compl, rx_compl, len;
++	u32 cfg;		/* CONFIG-Basiswert der laufenden Nachricht */
++	bool honor_mode;	/* DT apple,honor-spi-mode */
 +	struct completion done;
 +};
 +
@@ -78,10 +83,10 @@
 +	}
 +
 +	if (spi->tx_compl < spi->len)
-+		writel(REG_CONFIG_SET | REG_CONFIG_PIOEN | REG_CONFIG_IE_TXEMPTY |
++		writel(spi->cfg | REG_CONFIG_PIOEN | REG_CONFIG_IE_TXEMPTY |
 +		       REG_CONFIG_IE_RXRDY, spi->base + REG_CONFIG);
 +	else
-+		writel(REG_CONFIG_SET | REG_CONFIG_PIOEN | REG_CONFIG_IE_RXRDY,
++		writel(spi->cfg | REG_CONFIG_PIOEN | REG_CONFIG_IE_RXRDY,
 +		       spi->base + REG_CONFIG);
 +}
 +
@@ -99,7 +104,7 @@
 +	}
 +
 +	if (spi->rx_compl >= spi->len) {
-+		writel(REG_CONFIG_SET, spi->base + REG_CONFIG);
++		writel(spi->cfg, spi->base + REG_CONFIG);
 +		writel(REG_STATUS_CLEAR, spi->base + REG_STATUS);
 +		return true;
 +	}
@@ -130,10 +135,15 @@
 +
 +	if (!spi->csgpio || cs >= spi->csgpio->ndescs)
 +		return;
-+	gpiod_direction_output(spi->csgpio->desc[cs], !enable);
++	/*
++	 * Logical value: gpiolib forces controller-level cs-gpios to active-low
++	 * (unless the child has spi-cs-high), so 1 = asserted = line low.
++	 * Writing !enable here inverted CS (iPhone 7 spi1: Maggie/codec).
++	 */
++	gpiod_direction_output(spi->csgpio->desc[cs], enable);
 +}
 +
-+static int s5l_spi_prepare(struct apple_s5l_spi *spi, unsigned int speed)
++static int s5l_spi_prepare(struct apple_s5l_spi *spi, unsigned int speed, u32 mode)
 +{
 +	u32 rate = DIV_ROUND_UP(spi->clkfreq, speed);
 +
@@ -142,13 +152,22 @@
 +	if (rate < 2)
 +		rate = 2;
 +
++	spi->cfg = REG_CONFIG_SET;
++	if (spi->honor_mode) {
++		spi->cfg = REG_CONFIG_BASE;
++		if (mode & SPI_CPHA)
++			spi->cfg |= REG_CONFIG_CPHA;
++		if (mode & SPI_CPOL)
++			spi->cfg |= REG_CONFIG_CPOL;
++	}
++
 +	writel(0, spi->base + REG_CLKCFG);
 +	writel(0, spi->base + REG_PIN);
 +	writel(REG_STATUS_CLEAR, spi->base + REG_STATUS);
 +	writel(rate, spi->base + REG_CLKDIV);
 +	writel(2, spi->base + REG_CLKIDLE);
 +	writel(REG_STATUS_CLEAR, spi->base + REG_STATUS);
-+	writel(REG_CONFIG_SET, spi->base + REG_CONFIG);
++	writel(spi->cfg, spi->base + REG_CONFIG);
 +	writel(REG_CLKCFG_ENABLE, spi->base + REG_CLKCFG);
 +	readl(spi->base + REG_CONFIG);
 +	return 0;
@@ -169,7 +188,7 @@
 +		if (t->speed_hz && t->speed_hz < speed)
 +			speed = t->speed_hz;
 +
-+	if (s5l_spi_prepare(spi, speed)) {
++	if (s5l_spi_prepare(spi, speed, sdev->mode)) {
 +		status = -EIO;
 +		goto msg_done;
 +	}
@@ -187,14 +206,14 @@
 +		spi->rx_buf = t->rx_buf;
 +		writel(t->len, spi->base + REG_RXCNT);
 +		writel(t->len, spi->base + REG_TXCNT);
-+		writel(REG_CONFIG_SET | REG_CONFIG_PIOEN, spi->base + REG_CONFIG);
++		writel(spi->cfg | REG_CONFIG_PIOEN, spi->base + REG_CONFIG);
 +		s5l_spi_continue_tx(spi, readl(spi->base + REG_STATUS));
 +		spin_unlock_irqrestore(&spi->lock, flags);
 +
 +		timeout = wait_for_completion_timeout(&spi->done, timeout);
 +
 +		spin_lock_irqsave(&spi->lock, flags);
-+		writel(REG_CONFIG_SET, spi->base + REG_CONFIG);
++		writel(spi->cfg, spi->base + REG_CONFIG);
 +		writel(REG_STATUS_CLEAR, spi->base + REG_STATUS);
 +		if (!timeout) {
 +			dev_err(&sdev->dev, "transfer timed out (%u/%u left)\n",
@@ -252,7 +271,7 @@
 +
 +	ncs = gpiod_count(dev, "cs");
 +	if (ncs > 0) {
-+		spi->csgpio = devm_gpiod_get_array(dev, "cs", GPIOD_OUT_HIGH);
++		spi->csgpio = devm_gpiod_get_array(dev, "cs", GPIOD_OUT_LOW);	/* logisch: nicht ausgewählt */
 +		if (IS_ERR(spi->csgpio))
 +			return dev_err_probe(dev, PTR_ERR(spi->csgpio), "failed to get cs gpios\n");
 +	} else {
@@ -277,7 +296,9 @@
 +		return ret;
 +
 +	ctlr->dev.of_node = dev->of_node;
-+	ctlr->mode_bits = SPI_LSB_FIRST;
++	spi->honor_mode = of_property_read_bool(dev->of_node, "apple,honor-spi-mode");
++	spi->cfg = REG_CONFIG_SET;
++	ctlr->mode_bits = SPI_LSB_FIRST | SPI_CPOL | SPI_CPHA;
 +	ctlr->setup = s5l_spi_setup;
 +	ctlr->transfer_one_message = s5l_spi_transfer_one_message;
 +	ctlr->bits_per_word_mask = SPI_BPW_MASK(8);

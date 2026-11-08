@@ -24,7 +24,7 @@ Das Rootfs liegt wahlweise auf einer eigenen Partition im **internen Speicher**
 | Akku-Anzeige / Laden | ✅ | Tigris-Lader (I²C) + bq27545-Gauge (HDQ über UART5) |
 | Interner Speicher (NVMe) | ✅ | ANS2 über PCIe-Port 0 mit NVMMU-Unterstützung |
 | Boot vom internen Speicher | ✅ | Partition „Nura“ (ext4), ca. 8 s bis Userspace |
-| Audio | ❌ in Arbeit | Maggie-FPGA lädt noch nicht (siehe `research/AUDIO-ANALYSE.md`) |
+| Audio | 🚧 in Arbeit | Audio-FPGA „Maggie“ lädt, Codec CS42L71 per SPI lesbar; Initialisierung/Verstärker folgen (`research/AUDIO-ANALYSE.md`) |
 | GPU, Kamera, Modem | ❌ | – |
 
 Details zur Hardware: [`HARDWARE-iPhone7.md`](HARDWARE-iPhone7.md), Analysen unter `research/`.

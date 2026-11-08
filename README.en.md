@@ -24,7 +24,7 @@ The root filesystem lives either on its own partition in **internal storage**
 | Battery level / charging | ✅ | Tigris charger (I²C) + bq27545 gauge (HDQ over UART5) |
 | Internal storage (NVMe) | ✅ | ANS2 on PCIe port 0 with NVMMU support |
 | Booting from internal storage | ✅ | partition "Nura" (ext4), about 8 s to userspace |
-| Audio | ❌ in progress | Maggie FPGA does not load yet (see `research/AUDIO-ANALYSE.md`) |
+| Audio | 🚧 in progress | "Maggie" audio FPGA loads, CS42L71 codec readable over SPI; init/amplifier next (`research/AUDIO-ANALYSE.md`) |
 | GPU, camera, modem | ❌ | – |
 
 Hardware details: [`HARDWARE-iPhone7.md`](HARDWARE-iPhone7.md), analyses under `research/` (German).

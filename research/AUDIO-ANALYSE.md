@@ -76,3 +76,90 @@
   enthält bereits CPOL|CPHA (Mode 3).
 - Offen: spi1-Pinmux (SCK/MOSI) prüfen, CS42L71-ID über CS0 als Gegenprobe; AppleMaggie-kext (AP-Seite)
   im Kernelcache auf zusätzliche Schritte untersuchen.
+
+### Durchbruch 2026-11-08: Maggie konfiguriert (CDONE = 1)
+
+- Ursache: **CS-Polarität auf spi1 invertiert.** Die `cs-gpios` stehen am Controller-Knoten; gpiolib erzwingt
+  dafür active-low („enforce active low“), der s5l-Treiber schrieb zusätzlich `!enable` -> beide CS-Leitungen
+  idle LOW (ausgewählt) und HIGH während der Übertragung. Gemessen mit `tools/spi_cs_probe.py`.
+- spi1-Pinmux ok (`tools/pin_dump.py`): 0x80/0x81/0x82 = Funktion 1 (SCK/MOSI/MISO), 0x83/0xb1 = GPIO-CS.
+- Workaround-Test (alter Kernel): Bitstream über spidev1.0 senden (CS0 geht high, CS1 bleibt low) mit
+  AOP-Sequenz (MCLK 0x48 + AOP-GPIO 20) -> **CDONE = 1**.
+- Fix: `s5l_spi_set_cs()` setzt jetzt den logischen Wert `enable` (Patch 0001, Kernel r116).
+  Danach reicht `sudo python3 tools/maggie_load.py` (MAGGIE_AOP ist jetzt Standard).
+- Nächste Schritte: Codec CS42L71 (CS0) ansprechen (ID lesen), MCA/I2S-Takt, Verstärker CS35L26 (spi2),
+  Datenpfad AP -> Maggie -> Lautsprecher.
+
+### Stand r116 (2026-11-08 abends)
+
+- CS-Polarität korrekt (CS low nur während der Übertragung); Restpunkt: beim Probe startet CS „ausgewählt“
+  (GPIOD_OUT_HIGH) -> in Patch 0001 auf GPIOD_OUT_LOW geändert (nächster Kernel-Build).
+- `maggie_load.py` zuverlässig (6/6): s5l nutzt für die ganze Nachricht die kleinste Taktrate und bricht
+  jeden Teiltransfer nach 1 s ab (TIMEOUT_MS) -> jetzt 64 KiB Vorlauf + Bitstream bei 1 MHz (~0,5 s Puffer
+  für den CRESET-Zeitpunkt), bis zu 3 Versuche.
+- Codec CS42L71 (CS0): PMU-Versorgung `hawk_pwr` = PMU 0x308 ist bereits an (01). Antworten auf MISO
+  hängen davon ab, ob Maggie konfiguriert ist -> MISO ist geteilt, Codec-Tests mit Maggie im Reset.
+  Mit Maggie im Reset kommt konstant `00 90 …` – SPI-Protokoll des Codecs noch unbekannt.
+- iOS-Treiber: `com.apple.driver.AppleCS42L71Audio` (Kernelcache, prelinked, Fat-Hülle +0x1c).
+  `research/tools/kc_kext.py` / `kc_kext_segs.py` extrahieren Kext-Sections (nach research/maggie/cs42l71/,
+  nicht im Repo). Register-/SPI-Zugriffe liegen vermutlich in der Basisklasse (AppleCSCodec… in
+  AppleEmbeddedAudio) – als Nächstes dort das Leseformat suchen.
+
+### CS42L71: SPI-Protokoll aus iOS (AppleEmbeddedAudio.kext)
+
+- Treiberkette: `AppleCS42L71Audio` erbt von **AppleCSSPIv2Audio** (Metaklasse 0x…7a400a0 im GOT des Kexts),
+  diese von AppleCSSPIAudio (v1). Code in `com.apple.driver.AppleEmbeddedAudio` (Kernelcache-Datei-Offset 0xae7f00).
+- v1 (zum Vergleich): lesen `6d, a>>8, a&0x7f, 00, 00` (Wert im 5. Byte), schreiben `6c, a>>8, a&0x7f, 00, v`.
+- v2: 2-Byte-Kommandos `[cmd, wert]`. Block lesen (`_readDataBlock`):
+  `80, A0, A1, A2 (24-bit LE, Wortadresse bei Wortzugriff), 81, N0, N1 (Anzahl), C4|C6, 00, 00…, C4|C6, 00`,
+  letztes Empfangsbyte muss **0x50** sein (Status bereit), sonst erneut pollen; danach Datenphase.
+  Vorher/hinterher `[A1, ctrl]` bzw. `[A1, ctrl|0x40]` (Steuerregister 0x21).
+  Basisadressen im Code: 0x14000 (Wortmodus) bzw. 0x5000.
+- Test (r116): Codec antwortet mit Statusbyte 0x4c/0x48 bzw. 0x98/0x90 (= um 1 Bit verschoben) ->
+  **falscher SPI-Modus**. ADT: Codec `00 00 01 08` (Mode 0), Maggie `01 01 01 08` (Mode 3); der s5l-Treiber
+  war fest auf CONFIG 0x1E = CPOL|CPHA.
+- Fix r117: `apple,honor-spi-mode` am spi1-Knoten -> CPOL/CPHA je Gerät (Touch auf spi2 unverändert),
+  maggie@1 mit `spi-cpol; spi-cpha;`. Driver kompiliert mit W=1 ohne Warnungen (`src/kpatch/quick_check.sh`).
+- Werkzeuge: `tools/cs42l71.py` (v1-Format), `tools/cs42l71_v2probe.py`, `tools/cs42l71_test.sh` (hält Maggie im Reset).
+
+- Falle: `./build.sh payload` ersetzt die DTBs aus dem Kernelpaket durch `out/dtbs-override/*.dtb`.
+  Nach DT-Änderungen daher `UPDATE_OVERRIDE=1 src/kpatch/quick_check.sh && ./build.sh payload`.
+  (r117 lief zunächst mit dem alten DT ohne `apple,honor-spi-mode`.)
+
+### CS42L71 antwortet (r117, 2026-11-08 17:45)
+
+- SPI-Modus jetzt korrekt je Gerät (gemessen mit `tools/spi_cfg_probe.py`): CS0 CONFIG 0x1041b8 (Mode 0),
+  CS1 0x1041be (Mode 3). Touch läuft unverändert.
+- **Lesen per SPIv2 funktioniert** (`tools/cs42l71_v2.py`, `tools/cs42l71_dump.py`): Kopf, Status und Daten
+  in EINER CS-Phase (iOS: keepCSAsserted=1). Daten kommen direkt nach einem Status mit (st & 0x50)==0x50;
+  der Status wechselt d0/90, daher ohne Zusatz-Polls lesen. Ohne Auto-Inkrement (n Bytes = derselbe Wert);
+  Anzahl 8 anfordern (mit n=1 nur Nullen).
+- Adressen = Seite<<16 | Register.
+- **Chip-ID: Seite 0 = `42 a7 10` -> 0x42A71 (CS42L71), Revision `a1`.**
+  ```
+  0x000000: 42 a7 10 00 a1 0a a4 0e 08 00 …
+  0x010000: 0f 7f ff fb 03 03 03 c5 8f 77 00 a6 00 00 14 50
+  0x010010: 01 80 00 00 00 ee ff ff ff 08 00 …
+  0x020000: 00 01 01 00 f9 00 80 01 01 00 f9 00 80 01 01 00
+  0x020010: f9 00 80 44 44 00 03 00 00 00 00 00 78 00 78 b4
+  ```
+- iOS-Hochfahren (AppleCS42L71Audio, um 0x…6bc5b68): maskWrite (vtbl+0xb18) auf 0x200003/0x200004
+  (0x7f/0x40), 0x300000/0x300002 (0x3f), 0x10006 (1), 0x10001 (0x0e, 0x20), danach Warten auf
+  0x3000c Bit 3 (RCO hochgelaufen, Timeout 100×10 ms). Nächster Schritt: Schreiben (`_writeDataBlock`)
+  nachbauen und diese Sequenz ausführen.
+
+### CS42L71: Schreiben funktioniert (2026-11-08 18:00)
+
+- `_writeDataBlock` (AppleCSSPIv2Audio, 0x…5f70dbc) nachgebaut in `tools/cs42l71_v2.py` (`wr`, `update`):
+  `[A1,ctrl]`, dann in EINER CS-Phase `80 A0 A1 A2 81 N0 N1` + 10×`[90 00]` (Status, bereit wenn
+  (st & 0x90) == 0x90), danach `B5` (Byte; `B2` = Wort) + Daten + 10×`[90 00]`, zum Schluss `[A1, ctrl|0x40]`.
+- Test 0x200003: 0x40 -> 0x41 geschrieben, zurückgelesen 0x41, wiederhergestellt 0x40. ✔
+- Stand der iOS-Hochfahrregister nach iBoot: 0x200003/04 = 0x40, 0x300000/02 = 0x3f, 0x10001 = 0x7f,
+  0x10007 = 0xc5, 0x1000a = 0x00.
+- `tools/cs42l71_powerup.py` (Sequenz aus iOS): 0x1000a |= 4, 0x10001 &= ~0x40 -> Werte kommen an, aber
+  **RCO läuft nicht hoch** (0x3000c Bit 3 bleibt 0), auch mit AOP-MCLK (0x48) + AOP-GPIO 20.
+  Seite 3 liest sich komplett 0 (byte- und wortweise).
+- Offene Spuren: iOS ruft vor der Sequenz `c6130` (Takt-/Ratenkonfiguration, Konstante 1 000 000 = 0xf4240)
+  sowie vtbl+0x430(0xe3ff8103) und vtbl+0x710(0x185) auf; nach dem RCO-Hochlauf folgen 0x20000 (mask 3),
+  0x10000 (mask 1 / 0xc0), 0x50000. Möglicherweise braucht der RCO den I2S/MCA-Takt (MCLK vom AP) statt
+  nur des AOP-MCLK.

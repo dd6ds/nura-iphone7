@@ -69,3 +69,4 @@ tools/ios/
 
 # Dekompilate/Disassemblate von Apple-Firmware
 research/maggie/*.c
+research/maggie/*/

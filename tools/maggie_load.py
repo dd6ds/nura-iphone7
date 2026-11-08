@@ -9,8 +9,10 @@ Nullbytes über ein interaktives gpioset (ohne Neustart des Prozesses) freigegeb
 import ctypes, fcntl, glob, os, struct, subprocess, sys, threading, time
 
 CHIP, CRESET, CDONE = "gpiochip0", 22, 26          # ADT: maggie_reset GPIO 0x16, maggie_done GPIO 0x1a
-SPEED = int(os.environ.get("MAGGIE_HZ", "4000000"))
-PRE = int(os.environ.get("MAGGIE_PRE", str(160 * 1024)))
+SPEED = int(os.environ.get("MAGGIE_HZ", "1000000"))
+PRE = int(os.environ.get("MAGGIE_PRE", str(64 * 1024)))   # Vorlauf-Nullbytes (~0,5 s Zeit für CRESET);
+PRE_HZ = int(os.environ.get("MAGGIE_PRE_HZ", "1000000"))    # s5l: ganze Nachricht mit kleinster Rate, je Teil max. 1 s
+TRIES = int(os.environ.get("MAGGIE_TRIES", "3"))
 BIT = sys.argv[1] if len(sys.argv) > 1 else os.path.expanduser("~user/audio/maggie_d10.bin")
 
 def spidev_for(ctrl="20a084000", cs=int(os.environ.get("MAGGIE_CS", "1"))):
@@ -23,14 +25,17 @@ def gpio_get(line):
     return subprocess.run(["gpioget", "-c", CHIP, "--numeric", str(line)],
                           capture_output=True, text=True).stdout.strip()
 
-def spi_message(dev, data, out):
+def spi_message(dev, parts, out):
+    """parts = [(daten, hz), ...] – eine spidev-Nachricht, CS bleibt zwischen den Teilen low."""
     fd = os.open(dev, os.O_RDWR)
     if "MAGGIE_MODE" in os.environ:                       # s5l-Treiber: CONFIG 0x1E = CPOL|CPHA fest
         fcntl.ioctl(fd, 0x40016b01, struct.pack("B", int(os.environ["MAGGIE_MODE"])))
-    buf = bytearray(data)
-    cbuf = (ctypes.c_char * len(buf)).from_buffer(buf)
-    xfer = struct.pack("<QQIIHBBBBBB", ctypes.addressof(cbuf), 0, len(buf), SPEED, 0, 8, 0, 0, 0, 0, 0)
-    req = (1 << 30) | (len(xfer) << 16) | (ord('k') << 8) | 0       # SPI_IOC_MESSAGE(1)
+    keep, xfer = [], b""
+    for data, hz in parts:
+        cbuf = (ctypes.c_char * len(data)).from_buffer_copy(data)
+        keep.append(cbuf)
+        xfer += struct.pack("<QQIIHBBBBBB", ctypes.addressof(cbuf), 0, len(data), hz, 0, 8, 0, 0, 0, 0, 0)
+    req = (1 << 30) | (len(xfer) << 16) | (ord('k') << 8) | 0       # SPI_IOC_MESSAGE(n)
     xb = ctypes.create_string_buffer(xfer, len(xfer))
     libc = ctypes.CDLL(None, use_errno=True)              # ctypes gibt die GIL frei, fcntl.ioctl nicht
     out["start"] = time.monotonic()
@@ -56,7 +61,7 @@ def mem(addr, val=None):
     m.close(); os.close(fd)
     return r
 
-if os.environ.get("MAGGIE_AOP", "0") == "1":
+if os.environ.get("MAGGIE_AOP", "1") == "1":
     mem(AOP_MCLK, 0x48)
     mem(AOP_PIN20, (mem(AOP_PIN20) & ~1) | 1)
     time.sleep(0.05)
@@ -67,25 +72,31 @@ assert b"\x7e\xaa\x99\x7e" in bit[:256], "keine iCE40-Sync-Sequenz – falsche D
 dev = spidev_for()
 print(f"Bitstream {len(bit)} B, spidev {dev}, {SPEED/1e6:.1f} MHz, Vorlauf {PRE} B, CDONE vorher = {gpio_get(CDONE)}")
 
-gs = subprocess.Popen(["gpioset", "-c", CHIP, "--interactive", f"{CRESET}=0"],
-                      stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
-                      stderr=subprocess.DEVNULL, start_new_session=True, text=True)
-time.sleep(0.2)                                       # FPGA sicher im Reset
-res = {}
-th = threading.Thread(target=spi_message, args=(dev, bytes(PRE) + bit + bytes(64), res))
-th.start()
-while "start" not in res: time.sleep(0.001)
-time.sleep(0.01)                                      # SS ist low, Nullbytes laufen
-gs.stdin.write(f"set {CRESET}=1\n"); gs.stdin.flush()
-t_rel = time.monotonic()
-th.join()
-time.sleep(0.02)
-done = gpio_get(CDONE)
-dur = res["end"] - res["start"]
-pre_s = PRE * 8 / SPEED
-print(f"Transfer {dur:.3f} s (Vorlauf rechnerisch {pre_s:.3f} s), CRESET frei nach {t_rel - res['start']:.3f} s")
-if t_rel - res["start"] > pre_s - 0.002:
-    print("WARNUNG: CRESET kam zu spät (nach dem Vorlauf) – MAGGIE_PRE erhöhen")
-print(f"CDONE nachher = {done}  ->", "Maggie KONFIGURIERT" if done == "1"
-      else "nicht konfiguriert (Strom/Takt über AOP 'enableMaggie'?)")
-print(f"gpioset (PID {gs.pid}) hält CRESET_B high; beenden mit: kill {gs.pid}")
+for attempt in range(1, TRIES + 1):
+    gs = subprocess.Popen(["gpioset", "-c", CHIP, "--interactive", f"{CRESET}=0"],
+                          stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
+                          stderr=subprocess.DEVNULL, start_new_session=True, text=True)
+    time.sleep(0.2)                                   # FPGA sicher im Reset
+    res = {}
+    parts = [(bytes(PRE), PRE_HZ), (bit + bytes(64), SPEED)]
+    th = threading.Thread(target=spi_message, args=(dev, parts, res))
+    th.start()
+    while "start" not in res: time.sleep(0.001)
+    time.sleep(0.01)                                  # SS ist low, Nullbytes laufen
+    gs.stdin.write(f"set {CRESET}=1\n"); gs.stdin.flush()
+    t_rel = time.monotonic()
+    th.join()
+    time.sleep(0.02)
+    done = gpio_get(CDONE)
+    dur = res["end"] - res["start"]
+    pre_s = PRE * 8 / PRE_HZ
+    print(f"[{attempt}] Transfer {dur:.3f} s (Vorlauf rechnerisch {pre_s:.3f} s), "
+          f"CRESET frei nach {t_rel - res['start']:.3f} s")
+    if t_rel - res["start"] > pre_s - 0.002:
+        print("WARNUNG: CRESET kam zu spät (nach dem Vorlauf) – MAGGIE_PRE erhöhen")
+    print(f"CDONE nachher = {done}  ->", "Maggie KONFIGURIERT" if done == "1"
+          else "nicht konfiguriert (Strom/Takt über AOP 'enableMaggie'?)")
+    if done == "1":
+        print(f"gpioset (PID {gs.pid}) hält CRESET_B high; beenden mit: kill {gs.pid}")
+        break
+    gs.kill(); gs.wait()
