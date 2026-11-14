@@ -814,3 +814,18 @@ im 1-MB-Bereich ist nur 0xdf000..0xe0000), dann Endpunkte 32+ (SPU-Protokoll) f�
 - Offen: Kommt der Bittakt von mca1 über pin2 überhaupt am Verstärker an, oder bedient Maggie den Verstärker
   als TDM-Master (`maggie_tdm_config` 00 02 0a 08)? Nächster Test: Verstärkerstatus mit gestopptem mca1
   vergleichen; Maggie-Register zur TDM-Konfiguration im Kext suchen.
+
+### Erreicht der Bittakt den Verstärker? Schalter-Suchlauf (2026-11-14, 20:30)
+- Verstärkerstatus mit gestopptem und laufendem mca1 identisch (INT1 0x10 SPCLK_ERR) -> der Bittakt von
+  mca1/pin2 kommt **nicht** am Verstärker an.
+- AOP-Firmware-Strings: „ARC AP REQUEST (%u -> %u)“, „ARC service not found“, „BTMSPK service not found“,
+  „Error setting the regs for tdmIVMON“. SPUApp-`spkamp-config_arc` beginnt mit 06 07 08 02 (AOP-Slots),
+  die AP-Seite (`tdm-config`) mit 02 03 04 02. Deutung: Der Verstärker-TDM-Bus wird zwischen AOP und AP
+  umgeschaltet („ARC AP REQUEST“), der AP meldet seinen Zustand über `l25S` (spkamp_arc_state).
+  `maggie_tdm_config` wird weder im Kernelcache noch in der AOP-Firmware als String benutzt.
+- AOP-I2S-Schalter (0x2_1054_0000, 4 Ziele: pin0, pin1, mca0, mca1): pin0/pin1 <- mca0/mca1 einzeln
+  durchprobiert -> Verstärkerstatus unverändert.
+- AP-I2S-Schalter: aud1 -> pin0 unverändert; **aud1 -> pin1 legt AP-I2C2 lahm** (Controller meldet dauerhaft
+  „Transfer läuft“, SMSTA 0x10050100 auch nach PMGR-Neustart des I2C-Blocks; GPIO 6 von 1 auf 0). pin1 liegt
+  also auf Pads, die mit I2C2 bzw. dessen Geräten zusammenhängen – **pin1 nicht mehr anfassen**. Erholung
+  nur per Neustart.
