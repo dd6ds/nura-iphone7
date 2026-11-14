@@ -51,8 +51,21 @@ if len(fw) != FW_LEN or struct.unpack_from("<I", fw, 0)[0] >> 24 != 0xEA:
     sys.exit("Firmware passt nicht (erwartet ARM-Sprung am Anfang, Länge 0x5b320)")
 log(f"Firmware: {len(fw)} Byte, Version-Text {blob[1:FW_OFF - 1]!r}, erstes Wort {struct.unpack_from('<I', fw, 0)[0]:#010x}")
 
-# 1) gfx-Domain an
+# 1) gfx-Domain an (mit --neu vorher einmal aus = echter Reset des Coprozessors;
+#    nur CPU anhalten und neu starten reicht nicht, dann kommt kein zweites HELLO)
 pm = Mem(PMGR_GFX)
+if "--neu" in sys.argv and (pm.r32(0) >> 4) & 0xf == 0xf:
+    akf0 = Mem(AKF, 0x4000)
+    akf0.w32(0x44, akf0.r32(0x44) & ~0x10)
+    agx0 = Mem(AGX, 0x4000)                    # GFX-Schaltbit übersteht sonst den Reset und
+    agx0.w32(0x2048, agx0.r32(0x2048) & ~1)    # startet den Coprozessor schon beim Einschalten
+    pm.w32(0, pm.r32(0) & ~0xf)
+    for _ in range(1000):
+        if (pm.r32(0) >> 4) & 0xf == 0:
+            break
+        time.sleep(0.001)
+    log(f"gfx-Domain aus (Reset): {pm.r32(0):#010x}")
+    time.sleep(0.05)
 v = pm.r32(0)
 if (v >> 4) & 0xf != 0xf:
     pm.w32(0, (v & ~0xf) | 0xf)
@@ -95,9 +108,17 @@ log(f"Fenster: akf 08/10/18/20/28/38 = " + " ".join(f"{akf.r32(x):#x}" for x in 
 log(f"         agx 200c/2010/2014/2018/201c = " + " ".join(f"{agx.r32(x):#x}" for x in (0x200c, 0x2010, 0x2014, 0x2018, 0x201c)))
 
 # 4) Interrupts maskieren (Linux hat keinen Handler, wir pollen) + Init wie iOS
-akf.w32(0x4000, 0x1111); akf.w32(0xc00, 0x1111)
-akf.w32(0xc004, 0x11); akf.w32(0xc024, 1)
+if os.environ.get("MASK", "1") == "1":         # MASK=0: Masken-Register nicht anfassen
+    akf.w32(0x4000, 0x1111); akf.w32(0xc00, 0x1111)
+if os.environ.get("INIT", "1") == "1":         # INIT=0: +0xc004/+0xc024 nicht schreiben
+    akf.w32(0xc004, 0x11); akf.w32(0xc024, 1)
 log(f"vor Start: CPU {akf.r32(0x44):#x}, IN {akf.r32(0x4008):#x}, OUT {akf.r32(0x4020):#x}, IDLE {akf.r32(0x4040):#x}")
+# Alte Nachrichten aus einem vorigen Lauf überstehen den Domain-Reset (OUT ohne Bit 17 = nicht leer)
+for _ in range(64):
+    if akf.r32(0x4020) & (1 << 17):
+        break
+    log(f"  alte Nachricht im Ausgang verworfen: {akf.r64(0x4038):#018x}")
+log(f"Ausgang leer: OUT {akf.r32(0x4020):#x}")
 
 # 5) GFX-Schalter (agx+0x2048 Bit 0, setzt AppleA7IOPV2GFX), dann CPU starten und Ausgang pollen.
 # 2026-11-14: ohne dieses Bit läuft die CPU nicht an (RAM bleibt unverändert).

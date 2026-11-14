@@ -77,8 +77,22 @@ Basis = gfx-kf-Block 0x2_01d20000 („akf“), GFX-Zusatz = gemeinsamer Block 0x
 - Mit Bit 0: nach **2 ms erste Nachricht `0x00100000000c000c`** = RTKit-HELLO (Typ 1 in Bit 52–59,
   Version min = max = 12). Firmware beschreibt Daten (70 Wörter ab +0x31ec0) und Variablen/Stack
   (107 Wörter ab +0x890c0). IDLE_STATUS 0x61 → 0x6f, OUTBOX_CTRL danach 0x21101. iPhone bleibt stabil.
-- Nächster Schritt: RTKit-Handshake (HELLO_ACK Typ 2 mit Version 12 senden, dann Endpunkt-Karte EPMAP
-  lesen) – wie Asahi `rtkit.c`, aber älteres Nachrichtenformat (Endpunkt-Feld noch klären).
+
+### ✅ RTKit-Handshake (2026-11-14, gpu_fw_boot.py … 0 --laufen --neu, dann gpu_rtkit.py)
+- **Fallstrick:** agx+0x2048 Bit 0 übersteht den gfx-Domain-Reset und **startet den Coprozessor schon
+  beim Einschalten** (noch vor dem RUN-Bit +0x44, mit halb kopierter Firmware) → hängt. Ebenso bleiben alte
+  Nachrichten im Ausgang liegen. Lösung (in `--neu`): vor dem Domain-Aus RUN und agx+0x2048 Bit 0 löschen,
+  vor dem Start den Ausgang leeren. Mit MASK=0 INIT=0 getestet (Masken/Init sind dafür nicht nötig).
+- Nachrichtenformat bestätigt: Bit 63:56 Endpunkt, Verwaltung: Typ Bit 55:52 (Firmware-Handler:
+  `ubfx r0, high, #20, #4`, Sprungtabelle für Typ 1..8 bei IOP 0x2a134).
+- HELLO_ACK-Prüfung in der Firmware (IOP 0x2a14a): Bits 15:0 == 12 **und** Bits 31:16 == 12.
+- Ablauf: `<- 0x00100000000c000c` HELLO → `-> 0x00200000000c000c` ACK →
+  `<- 0x0080000000000003` EPMAP Basis 0 (Ep 0, 1) → `-> 0x0080000000000001` (MORE) →
+  `<- 0x0088000100000003` EPMAP Basis 1, LAST (Ep 32, 33) → `-> 0x0088000100000000`.
+- **Endpunkte: 0 Verwaltung, 1 crashlog, 32 und 33 (GPU-eigene Dienste).**
+- IOP_PWR_STATE (6) = 0x20 und AP_PWR_STATE (0xb) = 0x20 danach: keine Antwort (Eingang wird geleert).
+  Nächster Schritt: Endpunkte starten (STARTEP Typ 5: Ep in Bit 39:32, Flag Bit 1), crashlog-Puffer im
+  freien Teil des reservierten RAM (IOP-Adr. 0x90000–0xfffff) bereitstellen, Antworten auswerten.
 
 - Ursprünglicher Plan (umgesetzt):
   1. Im DT einen `reserved-memory`-Bereich (z. B. 1 MB, 16-KB-ausgerichtet) für die Firmware anlegen.
