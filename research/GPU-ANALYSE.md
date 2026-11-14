@@ -48,9 +48,29 @@
 - Firmware: `com.apple.AGXFirmwareKextG9PRTBuddy`, Section `__TEXT.__const` (373 545 Byte): Kopf „Release“,
   danach ARM32-Code (Vektortabelle), `RTKit_iOS-1827.140.2.release` → RTKit wie beim AOP.
   Treiberfunktionen: requestFirmwareBinary, getBootConfigOffset, getRuntimeBinSize, getFWResumeFlagOffset.
-- Nächste Schritte: (1) `AppleA7IOP::startCPUWithOptions` / `_mapFirmware` (V2) disassemblieren →
-  wie die Firmware in den Speicher kommt (DART-Abbildung) und welches Bit die CPU startet;
-  (2) DART des gfx-kf finden (ADT); (3) erst dann ein Startversuch mit RTKit-Hello.
+
+### Startsequenz aus AppleA7IOPV2 / V2GFX (disassembliert, 2026-11-14)
+Basis = gfx-kf-Block 0x2_01d20000 („akf“), GFX-Zusatz = gemeinsamer Block 0x2_01d00000 („agx“).
+| Funktion | Zugriffe |
+|---|---|
+| CPU starten/stoppen | akf+0x44: Bit 4 = RUN (lesen, Bit 4 setzen/löschen, schreiben); optional auto-boot-Register |
+| `_mapFirmware` (V2) | akf+0x18/+0x20 = IOP-Adresse (lo/hi), +0x28 = Länge & ~0xfff, +0x30 = 0, +0x08/+0x10 = **physische** Adresse (lo/hi), +0x38 = 1 → Adressfenster statt DART |
+| `_mapFirmware` (V2GFX) | dasselbe zusätzlich in agx+0x2014/+0x2018 (IOP-Adr.), +0x201c (Länge), +0x2020 = 0, +0x200c/+0x2010 (phys.), danach Basis-Version |
+| GFX-Schalter | agx+0x2048 Bit 0 (setzen/löschen) |
+| Interrupt-Init | akf+0xc004 = 0x11, akf+0xc024 = 1 |
+| Zeitbasis-Sync | akf+0x80c Bit 1 aus, Zeitstempel → akf+0xc030/+0xc038, Bit 1 wieder an |
+| Nachricht senden (AP→IOP) | 64-Bit-Schreiben akf+0x4010; Eingang voll = akf+0x4008 Bit 16, leer = Bit 17 |
+| Nachricht holen (IOP→AP) | 64-Bit-Lesen akf+0x4038 (**Lesen entnimmt!**); Ausgang leer = akf+0x4020 Bit 17, 0xc0000 = Fehler |
+| Interrupt-Masken | akf+0x4000/+0x4004 (Set/Clr) und +0xc00/+0xc04: 0x1 = Eingang, 0x1000 = Ausgang; 0x1111 = alle |
+| Sonstiges | akf+0xb88 Bit 0 = Status (vermutlich idle) |
+
+- Kein fester RAM-Bereich für die GFX-Firmware im ADT (anders als AOP: region-base 0x2_10e00000).
+  iOS legt sie zur Laufzeit ab (AGXFirmwareKext → requestFirmwareBinary) und stellt nur das Fenster ein.
+- Plan für einen Startversuch (noch nicht durchgeführt):
+  1. Im DT einen `reserved-memory`-Bereich (z. B. 1 MB, 16-KB-ausgerichtet) für die Firmware anlegen.
+  2. gfx einschalten, Firmware per /dev/mem dorthin kopieren, Fenster (IOP-Adresse 0) setzen.
+  3. Interrupt-Masken setzen, CPU starten (akf+0x44 Bit 4), Ausgang auf die erste RTKit-Nachricht pollen.
+  Offen: Boot-Konfiguration der Firmware (getBootConfigOffset), RTKit-Protokoll der Version 1827.
 
 ## Weg 2: Software-Rendering beschleunigen (erledigt)
 Messung mit `tools/gfx_bench.py` (GTK4, Vollbild, braucht `py3-cairo`; iPhone muss entsperrt sein):
