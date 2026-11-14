@@ -60,7 +60,9 @@ gpt)
 mkfs)
   [ -b ${D}p2 ] || { echo "${D}p2 fehlt"; exit 1; }
   blockdev --setrw ${D}p2
-  mkfs.ext4 -F -b 4096 -L nura ${D}p2
+  # Gleiche UUID wie beim ersten Gerät -> dieselbe Boot-Payload (pmos.root_uuid) passt für alle iPhones.
+  # Andere UUID: NURA_UUID=… nura_partition.sh mkfs (und NURA_ROOT_UUID beim ./build.sh payload).
+  mkfs.ext4 -F -b 4096 -L nura -U "${NURA_UUID:-663e8742-8b87-4502-9304-ee983b927a67}" ${D}p2
   mkdir -p /mnt/nura && mount ${D}p2 /mnt/nura
   dd if=/dev/urandom of=/mnt/nura/test.bin bs=1M count=128 conv=fsync 2>&1 | tail -1
   a=$(md5sum < /mnt/nura/test.bin); sync; echo 3 > /proc/sys/vm/drop_caches

@@ -13,7 +13,7 @@ cd "$(dirname "$0")/.."
 ROOT="$PWD"
 NEW_BYTES="${NEW_BYTES:-19999997952}"     # 20 GB, rounded down to 4096
 RD_VER="${RD_VER:-15.8}"                   # the iPhone runs iOS 15.6–15.8 (iBoot-7459.140.15)
-USED_BYTES=9200000000                      # used according to tools/apfs_info.en.py (9.17 GB)
+USED_BYTES="${USED_BYTES:-9200000000}"     # used according to tools/apfs_info.en.py (first iPhone 9.17 GB; other device: measure!)
 SRD="$ROOT/src/SSHRD_Script"
 c_info() { printf '\e[1;34m[*]\e[0m %s\n' "$*"; }
 c_ok()   { printf '\e[1;32m[+]\e[0m %s\n' "$*"; }
@@ -21,13 +21,13 @@ c_warn() { printf '\e[1;33m[!]\e[0m %s\n' "$*"; }
 die()    { printf '\e[1;31m[x]\e[0m %s\n' "$*"; exit 1; }
 
 (( NEW_BYTES % 4096 == 0 )) || die "NEW_BYTES must be a multiple of 4096"
-(( NEW_BYTES > USED_BYTES + 4000000000 )) || die "too small: iOS needs at least 4 GB headroom above the 9.2 GB in use"
+(( NEW_BYTES > USED_BYTES + 4000000000 )) || die "too small: iOS needs at least 4 GB headroom above the used $((USED_BYTES / 1000000)) MB"
 [[ -x "$ROOT/tools/ios/resize_apfs" ]] || die "tools/ios/resize_apfs missing (HoolockLinux/docs, iphoneos build)"
 [[ -d "$SRD" ]] || git clone --depth 1 https://github.com/verygenericname/SSHRD_Script.git "$SRD"
 
 cat <<EOF
 
-  Shrink the iOS container to $((NEW_BYTES / 1000000)) MB (now 32000 MB, ~9200 MB used)
+  Shrink iOS container to $((NEW_BYTES / 1000000)) MB (now 32000 MB, used ~$((USED_BYTES / 1000000)) MB)
   ------------------------------------------------------------------------------
   * BACK UP the iPhone first (Finder/iTunes) if at all possible.
   * Keep the iPhone on the charger/USB, do NOT unplug it while shrinking.

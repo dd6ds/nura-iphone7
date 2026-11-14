@@ -13,7 +13,7 @@ cd "$(dirname "$0")/.."
 ROOT="$PWD"
 NEW_BYTES="${NEW_BYTES:-19999997952}"     # 20 GB, auf 4096 abgerundet
 RD_VER="${RD_VER:-15.8}"                   # iPhone hat iOS 15.6–15.8 (iBoot-7459.140.15)
-USED_BYTES=9200000000                      # belegt laut tools/apfs_info.py (9,17 GB)
+USED_BYTES="${USED_BYTES:-9200000000}"     # belegt laut tools/apfs_info.py (erstes iPhone 9,17 GB; anderes Gerät: messen!)
 SRD="$ROOT/src/SSHRD_Script"
 c_info() { printf '\e[1;34m[*]\e[0m %s\n' "$*"; }
 c_ok()   { printf '\e[1;32m[+]\e[0m %s\n' "$*"; }
@@ -21,13 +21,13 @@ c_warn() { printf '\e[1;33m[!]\e[0m %s\n' "$*"; }
 die()    { printf '\e[1;31m[x]\e[0m %s\n' "$*"; exit 1; }
 
 (( NEW_BYTES % 4096 == 0 )) || die "NEW_BYTES muss ein Vielfaches von 4096 sein"
-(( NEW_BYTES > USED_BYTES + 4000000000 )) || die "zu klein: iOS braucht mind. 4 GB Reserve über den belegten 9,2 GB"
+(( NEW_BYTES > USED_BYTES + 4000000000 )) || die "zu klein: iOS braucht mind. 4 GB Reserve über den belegten $((USED_BYTES / 1000000)) MB"
 [[ -x "$ROOT/tools/ios/resize_apfs" ]] || die "tools/ios/resize_apfs fehlt (HoolockLinux/docs, iphoneos-Build)"
 [[ -d "$SRD" ]] || git clone --depth 1 https://github.com/verygenericname/SSHRD_Script.git "$SRD"
 
 cat <<EOF
 
-  iOS-Container verkleinern auf $((NEW_BYTES / 1000000)) MB (jetzt 32000 MB, belegt ~9200 MB)
+  iOS-Container verkleinern auf $((NEW_BYTES / 1000000)) MB (jetzt 32000 MB, belegt ~$((USED_BYTES / 1000000)) MB)
   ------------------------------------------------------------------------------
   * Vorher BACKUP des iPhones (Finder/iTunes), falls irgend möglich.
   * iPhone am Ladegerät/USB lassen, während des Verkleinerns NICHT abziehen.

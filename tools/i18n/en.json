@@ -1036,5 +1036,11 @@
  "RAM_LEN = int(os.environ.get(\"RAM_LEN\", \"0x400000\"), 0)   # ganzes Fenster; Firmware nutzt das erste MB": "RAM_LEN = int(os.environ.get(\"RAM_LEN\", \"0x400000\"), 0)   # whole window; the firmware uses the first MB",
  "# ioreport: Typ 8/0xc werden (wie bei Asahi rtkit.c) unverändert zurückgeschickt": "# ioreport: types 8/0xc are echoed back unchanged (as in Asahi rtkit.c)",
  "elif ep == 4 and etyp in (8, 0xc):": "elif ep == 4 and etyp in (8, 0xc):",
- "senden(msg)": "senden(msg)"
+ "senden(msg)": "senden(msg)",
+ "# Gleiche UUID wie beim ersten Gerät -> dieselbe Boot-Payload (pmos.root_uuid) passt für alle iPhones.": "# Same UUID as the first device -> the same boot payload (pmos.root_uuid) works for every iPhone.",
+ "# Andere UUID: NURA_UUID=… nura_partition.sh mkfs (und NURA_ROOT_UUID beim ./build.sh payload).": "# Different UUID: NURA_UUID=… nura_partition.sh mkfs (and NURA_ROOT_UUID for ./build.sh payload).",
+ "mkfs.ext4 -F -b 4096 -L nura -U \"${NURA_UUID:-663e8742-8b87-4502-9304-ee983b927a67}\" ${D}p2": "mkfs.ext4 -F -b 4096 -L nura -U \"${NURA_UUID:-663e8742-8b87-4502-9304-ee983b927a67}\" ${D}p2",
+ "USED_BYTES=\"${USED_BYTES:-9200000000}\"     # belegt laut tools/apfs_info.py (erstes iPhone 9,17 GB; anderes Gerät: messen!)": "USED_BYTES=\"${USED_BYTES:-9200000000}\"     # used according to tools/apfs_info.py (first iPhone 9.17 GB; other device: measure!)",
+ "(( NEW_BYTES > USED_BYTES + 4000000000 )) || die \"zu klein: iOS braucht mind. 4 GB Reserve über den belegten $((USED_BYTES / 1000000)) MB\"": "(( NEW_BYTES > USED_BYTES + 4000000000 )) || die \"too small: iOS needs at least 4 GB headroom above the used $((USED_BYTES / 1000000)) MB\"",
+ "iOS-Container verkleinern auf $((NEW_BYTES / 1000000)) MB (jetzt 32000 MB, belegt ~$((USED_BYTES / 1000000)) MB)": "Shrink iOS container to $((NEW_BYTES / 1000000)) MB (now 32000 MB, used ~$((USED_BYTES / 1000000)) MB)"
 }
