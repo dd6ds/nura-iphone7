@@ -425,3 +425,19 @@ im 1-MB-Bereich ist nur 0xdf000..0xe0000), dann Endpunkte 32+ (SPU-Protokoll) f�
 - Zuordnung der SPU-Endpunkte unter iOS (iPhone SE, ioreg): 32 SPUApp, 33 accel, 34 gyro, 35 compass,
   36 (ohne Treiber), 37 mca (Audio-Takt/MCA!), 38 cma, 39 devmotion, 40 spherecontrol, 41 borealis, 42 baseband,
   43 gesture, 44 wakehint, 45 orientation … (Reihenfolge = AOPEndpoint1..; auf t8010 vermutlich ähnlich).
+
+### AOP: Endpunkte freischalten, syslog, SPU-Protokoll (2026-11-14, zweites iPhone 7)
+- **EPMAP-Antwort muss die Bitmap zurückmelden** (Firmware 0x10630f6 setzt Bit 0 „aktiv“ nur für die
+  zurückgemeldeten Endpunkte). Mit `0x008800010007fffe` statt nur Basis/LAST: **IOP_PWR_ACK** kommt, **syslog**
+  startet (Init `0x0280000050000010` = 16 Einträge à 0x50 Byte, Puffer 1 Seite), AP_PWR wird gespiegelt.
+- syslog-Einträge (Typ 5, Index Bit 7:0) liegen im Puffer: 0x20 Byte Kopf (+8 Datei:Zeile) + Text. Erste Meldungen:
+  „Initializing Doppler!“, „VL62L0 device found“, „mpu6x00_south: mpu6900 device ID 0x10 found“,
+  „HSCDTD601A device found“, „BMP284 device found“, „AD7149 device found“, „UartBasebandService start:
+  baseband isn't present“ – die Sensoren hängen am AOP und werden gefunden.
+- Jeder syslog-Eintrag muss zurückgeschickt werden, **aber nur bei freiem Eingang**: 12 Antworten am Stück liefen
+  in einen Eingangs-Überlauf, danach Absturz mit Crashlog „Mbox:overflow (h=0x10a2588 …)“ (Puffer IOP 0x100000,
+  Kopf „CLHE“). gpu_rtkit.py prüft das (Bit 16 voll) und schickt jeden Eintrag sofort einzeln zurück.
+- **SPU-Endpunkte** (MailboxSharedMemoryEndpoint, Zustandsautomat 0x101c66c), Typ in Bit 55:48:
+  IOP 0x80 (Daten 8) -> AP 0xa0; ohne Firmware-eigenen Speicher: IOP 0x89 (Größe<<10 | 0xcafe) -> AP 0xa1
+  (48-Bit-Adresse); IOP 0x8d/0x8e (gemeinsamer Speicher), bis zu drei weitere 0x8x mit 0xcafe;
+  IOP 0x88 -> AP 0xa5 -> Endpunkt bereit. Endpunkt 48 meldete sich mit 0x80. `gpu_rtkit.py --spu` beantwortet das.

@@ -55,6 +55,27 @@ if not r32(0x44) & 0x10:
 endpunkte = []
 puffer_frei = int(os.environ.get("PUFFER_AB", "0x90000"), 0)   # nächste freie IOP-Adresse für Puffer
 puffer_ende = int(os.environ.get("PUFFER_BIS", "0x100000"), 0)
+# RAM_BASIS=<phys>: physische Adresse von IOP 0 (AOP: 0x840400000) -> Puffer lesbar (z. B. syslog-Text)
+ram_basis = int(os.environ["RAM_BASIS"], 0) if "RAM_BASIS" in os.environ else None
+ram = None
+if ram_basis is not None:
+    ram_m = mmap.mmap(fd, puffer_ende, mmap.MAP_SHARED, mmap.PROT_READ | mmap.PROT_WRITE, offset=ram_basis)
+    ram_va = ctypes.addressof(ctypes.c_char.from_buffer(ram_m))
+
+
+def ram_lesen(adr, laenge):
+    # Gerätespeicher -> ausgerichtete 32-Bit-Lesezugriffe
+    a0 = adr & ~3
+    w = (ctypes.c_uint32 * ((adr + laenge - a0 + 3) // 4)).from_address(ram_va + a0)
+    return bytes(w)[adr - a0:adr - a0 + laenge]
+
+
+puffer_von = {}                                      # Endpunkt -> IOP-Adresse des vergebenen Puffers
+syslog_n, syslog_groesse = 0, 0
+# SYSLOG=<IOP-Adresse>,<Anzahl>,<Textlänge>: syslog-Zustand eines schon laufenden Coprozessors übernehmen
+if "SYSLOG" in os.environ:
+    a, n, g = (int(x, 0) for x in os.environ["SYSLOG"].split(","))
+    puffer_von[2], syslog_n, syslog_groesse = a, n, g
 t0 = time.time()
 # Nach dem Handshake (0,5 s still) Strom-Anweisungen senden; IOP_PWR_ACK kommt erst nach dem crashlog-Puffer:
 # IOP_PWR_STATE (6) = 0x20 (an), dann AP_PWR_STATE (0xb) = 0x20.
@@ -92,7 +113,40 @@ while time.time() - t0 < dauer:
                 continue
             log(f"  Puffer-Anforderung: {seiten} Seiten -> IOP-Adresse {puffer_frei:#x} ({groesse:#x} Byte)")
             senden((ep << 56) | (1 << 52) | (seiten << 44) | puffer_frei)
+            puffer_von[ep] = puffer_frei
             puffer_frei += groesse
+        elif ep == 2 and etyp == 8:
+            # syslog-Init: Bit 7:0 Anzahl Einträge, Bit 31:24 Textlänge je Eintrag
+            syslog_n, syslog_groesse = msg & 0xff, (msg >> 24) & 0xff
+            log(f"  syslog: {syslog_n} Einträge à {syslog_groesse} Byte Text")
+        elif ep == 2 and etyp == 5:
+            # syslog-Eintrag: Index Bit 7:0. Eintrag = 0x20 Byte Kopf (ab +8 Kontextname) + Text.
+            # Jeden Eintrag unverändert zurückschicken, sonst bleibt der Ring (und die Firmware) stehen.
+            if ram_basis is not None and 2 in puffer_von and syslog_groesse:
+                i = msg & 0xff
+                e = ram_lesen(puffer_von[2] + i * (0x20 + syslog_groesse), 0x20 + syslog_groesse)
+                ctx = e[8:0x20].split(b"\0")[0].decode(errors="replace")
+                text = e[0x20:].split(b"\0")[0].decode(errors="replace").rstrip()
+                log(f"  syslog [{ctx}] {text}")
+            senden(msg)
+        elif ep >= 32 and "--spu" in sys.argv:
+            # AOP-SPU-Endpunkte (MailboxSharedMemoryEndpoint, Firmware 0x101c66c): Typ = Bit 55:48.
+            # IOP 0x80 -> AP 0xa0; IOP 0x89 (Puffer-Wunsch, Größe Bit 31:10) -> AP 0xa1 mit Adresse;
+            # IOP 0x8d/0x8e/… beschreiben den gemeinsamen Speicher; IOP 0x88 -> AP 0xa5 (fertig).
+            styp, nutz = (msg >> 48) & 0xff, msg & ((1 << 48) - 1)
+            log(f"  SPU ep {ep}: Typ {styp:#x}, Daten {nutz:#x}")
+            if styp == 0x80:
+                senden((ep << 56) | (0xa0 << 48) | nutz)
+            elif styp == 0x89:
+                groesse = ((nutz & 0xffffffff) >> 10) or 0x1000
+                groesse = (groesse + 0x3fff) & ~0x3fff
+                if puffer_frei + groesse <= puffer_ende:
+                    log(f"  SPU ep {ep}: Puffer {groesse:#x} Byte -> IOP-Adresse {puffer_frei:#x}")
+                    senden((ep << 56) | (0xa1 << 48) | puffer_frei)
+                    puffer_von[ep] = puffer_frei
+                    puffer_frei += groesse
+            elif styp == 0x88:
+                senden((ep << 56) | (0xa5 << 48))
         elif ep == 4 and etyp in (8, 0xc):
             # ioreport: Typ 8/0xc werden (wie bei Asahi rtkit.c) unverändert zurückgeschickt
             senden(msg)
@@ -109,7 +163,10 @@ while time.time() - t0 < dauer:
         neu = [basis * 32 + b for b in range(32) if bitmap >> b & 1]
         endpunkte += neu
         log(f"  EPMAP Basis {basis}: Endpunkte {neu}{' (letzte)' if letzte else ''}")
-        verwaltung(8, (basis << 32) | ((1 << 51) if letzte else 1))
+        # Antwort: Basis + LAST/MORE. Diese RTKit-Generation (AOP) schaltet nur die Endpunkte frei, deren Bit
+        # die Antwort zurückmeldet (Firmware 0x10630f6) – daher die Bitmap mitschicken (EPMAP_ECHO=0: ohne).
+        echo = bitmap & ~1 if os.environ.get("EPMAP_ECHO", "1") == "1" else 0
+        verwaltung(8, (basis << 32) | echo | ((1 << 51) if letzte else 1))
         if letzte:
             log("Endpunkte der Firmware: " + ", ".join(f"{e} ({NAMEN.get(e, '?')})" for e in endpunkte))
             if "--start" in sys.argv:
