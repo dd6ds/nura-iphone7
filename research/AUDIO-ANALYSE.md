@@ -771,3 +771,12 @@ im 1-MB-Bereich ist nur 0xdf000..0xe0000), dann Endpunkte 32+ (SPU-Protokoll) f�
 - Folgerung: Der Ton für den oberen Lautsprecher läuft sehr wahrscheinlich über Maggie (geladen + per AOP magE
   eingeschaltet), der für den unteren über den AOP (AmpWorker). Ohne Maggie bzw. vollständig laufenden AOP
   kommt am Verstärker kein Signal an.
+
+### Maggie geladen, Hörtest 6 (2026-11-14, 19:30)
+- `maggie_load.py` (MCLK 0x48 + AOP-GPIO 20 vom AP aus) läuft auch neben SIO und halb gestartetem AOP:
+  **CDONE = 1**, Maggie konfiguriert. Danach DMA-Ton (alle vier Slots) + Verstärker oben (SCLK bzw. MCLK):
+  **still**.
+- Nur den Bitstrom zu laden reicht also nicht. AppleMaggieArcAudio schickt danach per SPI weitere Befehle
+  (Strings: „transferring 0x22 & CRC“, „0x01 0x0C“, „command to wake up maggie“, „Unable to configure Maggie
+  (HomerLoaded/MaggieCalibrated)“, `_writeMultipleRegisters`, `maggie_coefficients`, `maggie_tdm_config`).
+  Nächster Schritt: diese Folge aus dem Kext (Text 0x…64e5000, Abzug in research/maggie/maggiekext/) nachbauen.
