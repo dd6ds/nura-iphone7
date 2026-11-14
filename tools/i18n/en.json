@@ -1091,5 +1091,19 @@
  "for name, off in ((\"aop_cpu\", 0x80048), (\"aop_filter\", 0x80050), (\"aop_busif\", 0x80058)):": "for name, off in ((\"aop_cpu\", 0x80048), (\"aop_filter\", 0x80050), (\"aop_busif\", 0x80058)):",
  "alt = pmgr.r32(off)": "alt = pmgr.r32(off)",
  "pmgr.w32(off, (alt & ~0x000f0300) | (0xf << 16))": "pmgr.w32(off, (alt & ~0x000f0300) | (0xf << 16))",
- "log(f\"  PMGR {name}: {alt:#x} -> {pmgr.r32(off):#x}\")": "log(f\"  PMGR {name}: {alt:#x} -> {pmgr.r32(off):#x}\")"
+ "log(f\"  PMGR {name}: {alt:#x} -> {pmgr.r32(off):#x}\")": "log(f\"  PMGR {name}: {alt:#x} -> {pmgr.r32(off):#x}\")",
+ "# Wort für Wort (memcpy über bytes(array) kann auf Gerätespeicher SIGBUS auslösen)": "# word by word (memcpy via bytes(array) can raise SIGBUS on device memory)",
+ "# SPU_PUFFER=32:0x258000,38:0x1c8000:0x50000:0x54000: Puffer schon laufender SPU-Endpunkte übernehmen,": "# SPU_PUFFER=32:0x258000,38:0x1c8000:0x50000:0x54000: adopt the buffers of already running SPU endpoints,",
+ "# optional mit den Ring-Versätzen aus 0x8a (AP->IOP) / 0x8b (IOP->AP): Größe = Bit 31:16 << 6, Versatz = Bit 47:32 << 6": "# optionally with the ring offsets from 0x8a (AP->IOP) / 0x8b (IOP->AP): size = bits 31:16 << 6, offset = bits 47:32 << 6",
+ "# nur 32-Bit-ausgerichtet (Gerätespeicher)": "# 32-bit aligned only (device memory)",
+ "# SPU-Ringe (Firmware 0x101a5a0 schreibt, 0x101a2e8 liest; Format 0x70000): Kopf u32 Größe, u32 0x00070006,": "# SPU rings (firmware 0x101a5a0 writes, 0x101a2e8 reads; format 0x70000): header u32 size, u32 0x00070006,",
+ "# Leseindex +0x40, Schreibindex +0x80, Daten ab +0xc0. Eintrag: 'AOP ', u32 Nutzlänge, u32 Dienst, u32 0,": "# read index +0x40, write index +0x80, data from +0xc0. Entry: 'AOP ', u32 payload length, u32 service, u32 0,",
+ "# dann Nutzdaten; auf 0x40 aufgerundet. Ring AP->IOP = Teilbereich 0x8a (+0), IOP->AP = 0x8b (+RING_AUS).": "# then payload; rounded up to 0x40. Ring AP->IOP = sub-region 0x8a (+0), IOP->AP = 0x8b (+RING_AUS).",
+ "# Paket wie iOS AppleSPU (Kernel 0xfffffff005c46760): 16 Byte Kopf (02, Folgenr.), dann u32 Datenlänge+4,": "# packet as iOS AppleSPU builds it (kernel 0xfffffff005c46760): 16-byte header (02, seq no.), then u32 data length+4,",
+ "# u8 2, u8 0x10, u16 Typ, u16 Folgenr., …, u32 0xe4 (+0x14), u32 Antwortlänge (+0x18), Daten ab +0x1c.": "# u8 2, u8 0x10, u16 type, u16 seq no., …, u32 0xe4 (+0x14), u32 reply length (+0x18), data from +0x1c.",
+ "_t, _e, _d, _ty, _h, *_a = _s.split(\":\")       # optional 6. Feld: Antwortlänge (getProperty, Typ 0xa)": "_t, _e, _d, _ty, _h, *_a = _s.split(\":\")       # optional 6th field: reply length (getProperty, type 0xa)",
+ "# Die Antwort kommt teils ohne Klingel 0x85 -> den IOP->AP-Ring nach 0,5 s selbst lesen": "# the reply sometimes comes without doorbell 0x85 -> read the IOP->AP ring ourselves after 0.5 s",
+ "# Klingel: Einträge im IOP->AP-Ring auslesen (und Leseindex nachziehen)": "# doorbell: read the entries of the IOP->AP ring (and advance the read index)",
+ "# SPU_SENDEN=<Sek>:<ep>:<Dienst>:<Typ>:<hex-Daten>[;…]: SPU-Paket in den AP->IOP-Ring legen, Klingel 0xa2.": "# SPU_SENDEN=<sec>:<ep>:<service>:<type>:<hex data>[;…]: put an SPU packet into the AP->IOP ring, doorbell 0xa2.",
+ "# Typ 4 = setProperty: Daten = u32 Eigenschaft + Wert (mckE = 0xd0, magE = 0xd1, je u32 1/0).": "# type 4 = setProperty: data = u32 property + value (mckE = 0xd0, magE = 0xd1, each u32 1/0)."
 }

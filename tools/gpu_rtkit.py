@@ -76,11 +76,99 @@ if ram_basis is not None:
 def ram_lesen(adr, laenge):
     # Gerätespeicher -> ausgerichtete 32-Bit-Lesezugriffe
     a0 = adr & ~3
-    w = (ctypes.c_uint32 * ((adr + laenge - a0 + 3) // 4)).from_address(ram_va + a0)
-    return bytes(w)[adr - a0:adr - a0 + laenge]
+    n = (adr + laenge - a0 + 3) // 4
+    # Wort für Wort (memcpy über bytes(array) kann auf Gerätespeicher SIGBUS auslösen)
+    b = b"".join(ctypes.c_uint32.from_address(ram_va + a0 + 4 * i).value.to_bytes(4, "little") for i in range(n))
+    return b[adr - a0:adr - a0 + laenge]
 
 
 puffer_von = {}                                      # Endpunkt -> IOP-Adresse des vergebenen Puffers
+# SPU_PUFFER=32:0x258000,38:0x1c8000:0x50000:0x54000: Puffer schon laufender SPU-Endpunkte übernehmen,
+# optional mit den Ring-Versätzen aus 0x8a (AP->IOP) / 0x8b (IOP->AP): Größe = Bit 31:16 << 6, Versatz = Bit 47:32 << 6
+ring_ein, ring_aus = {}, {}
+for _p in os.environ.get("SPU_PUFFER", "").split(","):
+    if _p:
+        _e, _a, *_r = _p.split(":")
+        puffer_von[int(_e, 0)] = int(_a, 0)
+        if _r:
+            ring_ein[int(_e, 0)], ring_aus[int(_e, 0)] = int(_r[0], 0), int(_r[1], 0)
+
+
+def ram_schreiben(adr, daten):
+    # nur 32-Bit-ausgerichtet (Gerätespeicher)
+    assert adr % 4 == 0 and len(daten) % 4 == 0
+    w = (ctypes.c_uint32 * (len(daten) // 4)).from_address(ram_va + adr)
+    for i in range(len(daten) // 4):
+        w[i] = int.from_bytes(daten[4 * i:4 * i + 4], "little")
+
+
+# SPU-Ringe (Firmware 0x101a5a0 schreibt, 0x101a2e8 liest; Format 0x70000): Kopf u32 Größe, u32 0x00070006,
+# Leseindex +0x40, Schreibindex +0x80, Daten ab +0xc0. Eintrag: 'AOP ', u32 Nutzlänge, u32 Dienst, u32 0,
+# dann Nutzdaten; auf 0x40 aufgerundet. Ring AP->IOP = Teilbereich 0x8a (+0), IOP->AP = 0x8b (+RING_AUS).
+RING_AUS = int(os.environ.get("RING_AUS", "0x4000"), 0)
+
+
+def ring_lesen(basis):
+    groesse = int.from_bytes(ram_lesen(basis, 4), "little")
+    ri = int.from_bytes(ram_lesen(basis + 0x40, 4), "little")
+    wi = int.from_bytes(ram_lesen(basis + 0x80, 4), "little")
+    if not groesse or groesse > 0x100000:
+        return []
+    raus = []
+    for _ in range(64):
+        if ri == wi:
+            break
+        if ri + 0x10 > groesse:
+            ri = 0
+        kopf = ram_lesen(basis + 0xc0 + ri, 0x10)
+        laenge = int.from_bytes(kopf[4:8], "little")
+        gesamt = (laenge + 0x10 + 0x3f) & ~0x3f
+        if ri + gesamt > groesse:
+            ri = 0
+            kopf = ram_lesen(basis + 0xc0, 0x10)
+            laenge = int.from_bytes(kopf[4:8], "little")
+            gesamt = (laenge + 0x10 + 0x3f) & ~0x3f
+        raus.append(ram_lesen(basis + 0xc0 + ri, 0x10 + min(laenge, 0x400)))
+        ri = (ri + gesamt) % groesse
+    ram_schreiben(basis + 0x40, ri.to_bytes(4, "little"))
+    return raus
+
+
+def ring_schreiben(basis, dienst, nutz):
+    groesse = int.from_bytes(ram_lesen(basis, 4), "little")
+    wi = int.from_bytes(ram_lesen(basis + 0x80, 4), "little")
+    nutz = nutz + b"\0" * (-len(nutz) % 4)
+    eintrag = b"AOP " + len(nutz).to_bytes(4, "little") + dienst.to_bytes(4, "little") + bytes(4) + nutz
+    gesamt = (len(eintrag) + 0x3f) & ~0x3f
+    if wi + gesamt > groesse:
+        wi = 0
+    ram_schreiben(basis + 0xc0 + wi, eintrag + bytes(gesamt - len(eintrag)))
+    ram_schreiben(basis + 0x80, ((wi + gesamt) % groesse).to_bytes(4, "little"))
+
+
+# SPU_SENDEN=<Sek>:<ep>:<Dienst>:<Typ>:<hex-Daten>[;…]: SPU-Paket in den AP->IOP-Ring legen, Klingel 0xa2.
+# Paket wie iOS AppleSPU (Kernel 0xfffffff005c46760): 16 Byte Kopf (02, Folgenr.), dann u32 Datenlänge+4,
+# u8 2, u8 0x10, u16 Typ, u16 Folgenr., …, u32 0xe4 (+0x14), u32 Antwortlänge (+0x18), Daten ab +0x1c.
+# Typ 4 = setProperty: Daten = u32 Eigenschaft + Wert (mckE = 0xd0, magE = 0xd1, je u32 1/0).
+spu_plan = []
+for _s in os.environ.get("SPU_SENDEN", "").split(";"):
+    if _s:
+        _t, _e, _d, _ty, _h, *_a = _s.split(":")       # optional 6. Feld: Antwortlänge (getProperty, Typ 0xa)
+        spu_plan.append((float(_t), int(_e, 0), int(_d, 0), int(_ty, 0), bytes.fromhex(_h),
+                         int(_a[0], 0) if _a else 0))
+spu_folge = 0x100
+
+
+def spu_paket(typ, daten, antwort=0):
+    global spu_folge
+    spu_folge += 1
+    k = bytes([2]) + spu_folge.to_bytes(2, "little") + bytes(13)
+    p = ((len(daten) + 4).to_bytes(4, "little") + bytes([2, 0x10]) + typ.to_bytes(2, "little")
+         + spu_folge.to_bytes(2, "little") + bytes(10) + (0xe4).to_bytes(4, "little")
+         + antwort.to_bytes(4, "little") + daten)
+    return k + p
+
+
 syslog_n, syslog_groesse = 0, 0
 # SPU_EP=48,37: nur diesen SPU-Endpunkten antworten (Standard: allen)
 spu_eps = {int(x, 0) for x in os.environ["SPU_EP"].split(",")} if "SPU_EP" in os.environ else set(range(32, 64))
@@ -107,6 +195,16 @@ while time.time() - t0 < dauer:
             log(f"  (0,5 s still) sende {TYPEN[typ]} = {wert:#x}")
             verwaltung(typ, wert)
             letzte_nachricht = time.time()
+        if spu_plan and time.time() - t0 >= spu_plan[0][0]:
+            _t, _e, _d, _ty, _h, _a = spu_plan.pop(0)
+            pk = spu_paket(_ty, _h, _a)
+            log(f"  SPU senden ep {_e} Dienst {_d}: Typ {_ty:#x} Daten {_h.hex()} -> {pk.hex()}")
+            ring_schreiben(puffer_von[_e] + ring_ein.get(_e, 0), _d, pk)
+            senden((_e << 56) | (0xa2 << 48))
+            # Die Antwort kommt teils ohne Klingel 0x85 -> den IOP->AP-Ring nach 0,5 s selbst lesen
+            time.sleep(0.5)
+            for e in ring_lesen(puffer_von[_e] + ring_aus.get(_e, RING_AUS)):
+                log(f"  SPU ep {_e} Ring: Dienst {int.from_bytes(e[8:12], 'little'):#x}: {e[0x10:0x80].hex()}")
         time.sleep(0.002)
         continue
     letzte_nachricht = time.time()
@@ -159,6 +257,13 @@ while time.time() - t0 < dauer:
                     puffer_frei += groesse
             elif styp == 0x88:
                 senden((ep << 56) | (0xa5 << 48))
+            elif styp == 0x85 and ep in puffer_von and ram_basis is not None:
+                # Klingel: Einträge im IOP->AP-Ring auslesen (und Leseindex nachziehen)
+                for e in ring_lesen(puffer_von[ep] + ring_aus.get(ep, RING_AUS)):
+                    d = int.from_bytes(e[8:12], "little")
+                    p = e[0x20:]
+                    typ = int.from_bytes(p[6:8], "little") if len(p) >= 8 else -1
+                    log(f"  SPU ep {ep} Ring: Dienst {d:#x} Pakettyp {typ:#x}: {e[0x10:0x80].hex()}")
         elif ep == 4 and etyp in (8, 0xc):
             # ioreport: Typ 8/0xc werden (wie bei Asahi rtkit.c) unverändert zurückgeschickt
             senden(msg)

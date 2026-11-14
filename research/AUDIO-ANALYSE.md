@@ -519,3 +519,24 @@ im 1-MB-Bereich ist nur 0xdf000..0xe0000), dann Endpunkte 32+ (SPU-Protokoll) f�
   0x1011824 = SPU_service_command) und ruft 0x1018cd8 auf. Unser Handnachbau (nur 0x48) lässt das aus. Wird
   enableMClk vom AP über SPUApp „mckE“ angefordert, läuft der komplette Ablauf – dafür müssen wir SPU-Kommandos
   über die Ringpuffer senden können.
+
+### SPU-Ringpuffer entschlüsselt, mckE vom AP gesendet (2026-11-14)
+- **Kanal funktioniert:** Der AP kann jetzt Pakete an AOP-Dienste schicken (`tools/gpu_rtkit.py`, `SPU_SENDEN`).
+- Puffer je SPU-Endpunkt: Teilbereiche aus den IOP-Nachrichten 0x8a (Ring AP->IOP) und 0x8b (Ring IOP->AP),
+  jeweils Größe = Bit 31:16 << 6, Versatz = Bit 47:32 << 6 (ep32: +0 / +0x4000; ep38 mca: +0x50000 / +0x54000).
+- Ring (AOP 0x101a5a0 schreibt, 0x101a2e8 liest): u32 Größe, u32 0x00070006, Leseindex +0x40, Schreibindex +0x80,
+  Daten ab +0xc0. Eintrag: `'AOP '`, u32 Nutzlänge, u32 Dienst-Kennung, u32 0, Nutzdaten; auf 0x40 aufgerundet.
+- Nutzdaten wie iOS AppleSPU (Kernel 0xfffffff005c46760/…6bc): 16 Byte Kopf (u8 2, u16 Folgenr.), dann Paket:
+  u32 Datenlänge+4, u8 2, u8 Flags (0x10 Anfrage, 0x20 Antwort), u16 Typ, u16 Folgenr., u32 0xe4 (+0x14),
+  u32 Antwortlänge bzw. Status (+0x18), Daten ab +0x1c. Typ 4 = setProperty (Daten u32 Eigenschaft + Wert),
+  Typ 0xa = getProperty (Daten u32 Eigenschaft), Antworttyp = Typ | 0x80.
+- Klingel AP->IOP: Nachricht Typ **0xa2** (Bit 55:48) auf dem Endpunkt (AOP 0x101c8e0; 0xa3/0xa4/0xc2 = Strom).
+- Dienst-Kennungen stehen im ReadyReport (+8 des Ringeintrags): SPUApp = 0 (ep32), mca = 0x1000000b (ep38).
+- iOS-Kernel: Plattformfunktion `mckE` = setProperty **0xd0** an SPUApp, `magE` = 0xd1 (je u32 1/0).
+  Im AOP landet 0xd0 in Button setProperty (0x100bb38) -> Dienst-Kommando 0x21 -> **enableMClk(1, AP)**.
+- Ergebnis: Antwort Status 0, im Button-Objekt (IOP 0xa9620) apCnt (+0x6a8) = 2 nach zwei Anfragen – der komplette
+  enableMClk-Ablauf ist gelaufen: Kommando 0x20 an den Dienst **mca** (MCA.cpp 0x10181f8: Zähler +0x228, beim ersten
+  Einschalten Stromdomäne 0x15 -> Zustand 2) und 0x48 nach 0x2_10c02000.
+- **Trotzdem rastet die CS42L71-PLL nicht ein** (Status 0x90, RCO steht). Damit ist der AOP-Teil des Takts
+  ausgeschöpft; die fehlende Stelle liegt beim Codec selbst (PLL-Referenzquelle/MCLK-Pin, Reset/Versorgung) oder
+  in einer Pin-Funktion (Pinmux des MCLK-Ausgangs), die Linux nicht setzt.
