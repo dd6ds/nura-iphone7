@@ -81,7 +81,11 @@ elif cmd == "init":
     # AppleMaggieArcAudio 0x…64e854c: 0x6001 = 0, 0x46 = 0xffff, 0x47 = 1, 0x48 = 1, 0x49 = 3, 0x3000 = 0x3001 = 0xff
     for adr, v in ((0x6001, 0), (0x46, 0xffff), (0x47, 1), (0x48, 1), (0x49, 3), (0x3000, 0xff), (0x3001, 0xff)):
         wr(adr, v)
-    for adr, n in ((0x40, 0x10), (0x3000, 2), (0x6000, 4)):
-        zeige(adr, n)
+    if os.environ.get("TEIL2") == "1":
+        # part 2 (after calibration data we do not have): 0x6002 |= 3, 0x6001 |= 4, 0x42 = 0x43 = 0x10 = 0x17 = 0
+        # (registers are not readable -> write full values)
+        for adr, v in ((0x6002, 3), (0x6001, 4), (0x42, 0), (0x43, 0), (0x10, 0), (0x17, 0)):
+            wr(adr, v)
+    print("written (Maggie registers are mostly not readable, reads return 0xabcd)")
 else:
     sys.exit(__doc__)

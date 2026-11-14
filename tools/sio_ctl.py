@@ -152,7 +152,7 @@ elif cmd == "ton":
         ctypes.c_uint64.from_address(rva + SEG + 12 * (h + 6)).value = RAM + PUF
         ctypes.c_uint32.from_address(rva + SEG + 12 * (h + 6) + 8).value = laenge
         senden(nachricht(kanal, tag, 6, 0, h))
-    fertig, t0 = 0, time.time()
+    fertig, t0, zeiten = 0, time.time(), []
     while time.time() - t0 < dauer:
         st = r32(0x4020)
         if st & 0xc0000:
@@ -163,12 +163,16 @@ elif cmd == "ton":
         op, tag = m >> 16 & 0xff, m >> 8 & 0xff
         if op == 0x68 and tag in handles and time.time() - t0 < dauer - 0.5:
             fertig += 1
+            zeiten.append(time.time())
             senden(nachricht(kanal, tag, 6, 0, handles[tag]))
         elif op not in (0x65, 0x68):
             print("  <-", zeige(m))
             if op == 0x6a: panic_text(); break
     print(f"{fertig} Puffer à {laenge:#x} Byte fertig in {time.time() - t0:.1f} s "
           f"(erwartet {dauer * 48000 * rb / laenge:.0f})")
+    stetig = [z for z in zeiten if z - t0 > 1.0]           # Vorlauf (FIFO-/Pufferfüllung) auslassen
+    if len(stetig) > 2:
+        print(f"Rahmenrate im Dauerbetrieb: {(len(stetig) - 1) * laenge / rb / (stetig[-1] - stetig[0]):.0f} Hz")
 elif cmd == "hoeren":
     holen(float(sys.argv[2]) if len(sys.argv) > 2 else 5)
 elif cmd == "send":

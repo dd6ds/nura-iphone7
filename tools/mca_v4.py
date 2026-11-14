@@ -55,7 +55,9 @@ if CMD == "start":
 
 # init
 run(f"{HERE}/pmgr_ps.py", hex(0x80178 + 8 * N), "on")
-run(f"{HERE}/nco_set.py", str(N), "12000000")
+# nco_set.py rechnet mit einem falschen Referenztakt: „12 MHz“ ergab gemessen 13,97 MHz Bittakt (Rahmen
+# 240 + Reg 5 Bittakte, Rahmenrate 55,9 kHz statt 48 kHz). 10 305 000 liefert die echten 12 MHz (48,07 kHz).
+run(f"{HERE}/nco_set.py", str(N), os.environ.get("NCO_HZ", "10305000"))
 run(f"{HERE}/peek.py", hex(0x20a002000 + 4 * N), "0x50")
 s = karte(SW)
 sw = lambda i, v: struct.pack_into("<I", s, i * 4, v)

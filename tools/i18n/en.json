@@ -1278,5 +1278,15 @@
  "if \"MODUS\" in os.environ:                                  # SPI-Modus 0-3 (SPI_IOC_WR_MODE)": "if \"MODUS\" in os.environ:                                  # SPI mode 0-3 (SPI_IOC_WR_MODE)",
  "# wie der AOP-Dienst mca bei enableMClk: setState(0x15, 2) -> PMGR-mini 0x80038, dann 0x48 ins MCLK-Register": "# like the AOP mca service on enableMClk: setState(0x15, 2) -> PMGR-mini 0x80038, then 0x48 into the MCLK register",
  "print(f\"Maggie 0x7002 = {w[0]:#06x} ({'ok' if w[0] == 0x2e8b else 'keine Antwort'})\")": "print(f\"Maggie 0x7002 = {w[0]:#06x} ({'ok' if w[0] == 0x2e8b else 'no answer'})\")",
- "# AppleMaggieArcAudio 0x…64e854c: 0x6001 = 0, 0x46 = 0xffff, 0x47 = 1, 0x48 = 1, 0x49 = 3, 0x3000 = 0x3001 = 0xff": "# AppleMaggieArcAudio 0x…64e854c: 0x6001 = 0, 0x46 = 0xffff, 0x47 = 1, 0x48 = 1, 0x49 = 3, 0x3000 = 0x3001 = 0xff"
+ "# AppleMaggieArcAudio 0x…64e854c: 0x6001 = 0, 0x46 = 0xffff, 0x47 = 1, 0x48 = 1, 0x49 = 3, 0x3000 = 0x3001 = 0xff": "# AppleMaggieArcAudio 0x…64e854c: 0x6001 = 0, 0x46 = 0xffff, 0x47 = 1, 0x48 = 1, 0x49 = 3, 0x3000 = 0x3001 = 0xff",
+ "if os.environ.get(\"TEIL2\") == \"1\":": "if os.environ.get(\"TEIL2\") == \"1\":",
+ "# Teil 2 (nach Kalibrierdaten, die wir nicht haben): 0x6002 |= 3, 0x6001 |= 4, 0x42 = 0x43 = 0x10 = 0x17 = 0": "# part 2 (after calibration data we do not have): 0x6002 |= 3, 0x6001 |= 4, 0x42 = 0x43 = 0x10 = 0x17 = 0",
+ "# (Register sind nicht lesbar -> volle Werte schreiben)": "# (registers are not readable -> write full values)",
+ "print(\"geschrieben (Maggie-Register sind größtenteils nicht lesbar, lesen liefert 0xabcd)\")": "print(\"written (Maggie registers are mostly not readable, reads return 0xabcd)\")",
+ "# nco_set.py rechnet mit einem falschen Referenztakt: „12 MHz“ ergab gemessen 13,97 MHz Bittakt (Rahmen": "# nco_set.py uses a wrong reference clock: \"12 MHz\" measured as a 13.97 MHz bit clock (frame",
+ "# 240 + Reg 5 Bittakte, Rahmenrate 55,9 kHz statt 48 kHz). 10 305 000 liefert die echten 12 MHz (48,07 kHz).": "# 240 + reg 5 bit clocks, frame rate 55.9 kHz instead of 48 kHz). 10 305 000 gives the real 12 MHz (48.07 kHz).",
+ "fertig, t0, zeiten = 0, time.time(), []": "fertig, t0, zeiten = 0, time.time(), []",
+ "zeiten.append(time.time())": "zeiten.append(time.time())",
+ "stetig = [z for z in zeiten if z - t0 > 1.0]           # Vorlauf (FIFO-/Pufferfüllung) auslassen": "stetig = [z for z in zeiten if z - t0 > 1.0]           # skip the start-up phase (FIFO/buffer filling)",
+ "print(f\"Rahmenrate im Dauerbetrieb: {(len(stetig) - 1) * laenge / rb / (stetig[-1] - stetig[0]):.0f} Hz\")": "print(f\"Frame rate in steady state: {(len(stetig) - 1) * laenge / rb / (stetig[-1] - stetig[0]):.0f} Hz\")"
 }

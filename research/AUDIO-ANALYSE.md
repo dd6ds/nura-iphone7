@@ -798,3 +798,19 @@ im 1-MB-Bereich ist nur 0xdf000..0xe0000), dann Endpunkte 32+ (SPU-Protokoll) f�
   Schnittstelle passt nicht), INT4 0x0c (VMON/IMON-Überlauf). Hörtest 8 an der Ohrmuschel: **Knacken/Rauschen**.
 - Nächster Schritt: Bittakt-/Rahmenformat für den Verstärker richtig einstellen (SP-Format 0x0d-0x0f,
   CLK_CTL3, ggf. Maggie als TDM-Vermittler mit `maggie_tdm_config` 00 02 0a 08) – Werte aus AppleCS35L26Amp.
+
+### Rahmenrate korrigiert, Maggie Teil 2 – weiter SPCLK_ERR (2026-11-14, 21 Uhr)
+- `sio_ctl.py ton` misst jetzt die Rahmenrate im Dauerbetrieb (Zeitstempel der Fertigmeldungen ab 1 s).
+  Mit Reg 5 = 0/10/40/80: 58,2/55,9/49,9/43,7 kHz -> **Rahmen = 240 + Reg 5 Bittakte, Bittakt 13,97 MHz** statt
+  12 MHz. `nco_set.py` rechnet mit falschem Referenztakt (Faktor 1,1645). Mit NCO1 = 10 305 000: **48,08 kHz**.
+  `mca_v4.py init` nutzt jetzt diesen Wert (NCO_HZ). Achtung: Auch frühere Codec-Tests (mca0/mca2 „12 MHz“)
+  liefen damit mit ~14 MHz.
+- AppleCS35L26Amp schreibt keine SP-Format-Register (0x0b-0x0f): nur speaker-config (14 Byte/Lautsprecher:
+  0x17 = b1, 0x1e = b2, 0x21-0x24 = b3-b6, 0x3a-0x3d = b7-b10, b13 -> 0x0a Bit 4), RX/TX-Lagen 0x52-0x5d,
+  0x14 = 0x41, Masken 0x70-0x72 = 0xbf/0x1f/0x17 usw. Das SP-Format kommt also aus den Vorgabewerten.
+- Maggie Teil 2 (`maggie_reg.py init` mit TEIL2=1): 0x6002 = 3, 0x6001 = 4, 0x42/0x43/0x10/0x17 = 0.
+  Kalibrierdaten (`maggie-calibration`, syscfg) haben wir nicht.
+- Hörtests 9/10 (48 kHz, mit/ohne Maggie Teil 2): **Knacken/Rauschen**, Verstärker weiter INT1 = 0x10 (SPCLK_ERR).
+- Offen: Kommt der Bittakt von mca1 über pin2 überhaupt am Verstärker an, oder bedient Maggie den Verstärker
+  als TDM-Master (`maggie_tdm_config` 00 02 0a 08)? Nächster Test: Verstärkerstatus mit gestopptem mca1
+  vergleichen; Maggie-Register zur TDM-Konfiguration im Kext suchen.

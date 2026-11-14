@@ -55,7 +55,9 @@ if CMD == "start":
 
 # init
 run(f"{HERE}/pmgr_ps.en.py", hex(0x80178 + 8 * N), "on")
-run(f"{HERE}/nco_set.en.py", str(N), "12000000")
+# nco_set.en.py uses a wrong reference clock: "12 MHz" measured as a 13.97 MHz bit clock (frame
+# 240 + reg 5 bit clocks, frame rate 55.9 kHz instead of 48 kHz). 10 305 000 gives the real 12 MHz (48.07 kHz).
+run(f"{HERE}/nco_set.en.py", str(N), os.environ.get("NCO_HZ", "10305000"))
 run(f"{HERE}/peek.en.py", hex(0x20a002000 + 4 * N), "0x50")
 s = karte(SW)
 sw = lambda i, v: struct.pack_into("<I", s, i * 4, v)
