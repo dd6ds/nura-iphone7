@@ -53,6 +53,11 @@ akf = Mem(AKF, 0x10000)
 log("before: CPU {:#x}, window 08/10/18/20/28/38 = {}".format(
     akf.r32(0x44), " ".join(f"{akf.r32(o):#x}" for o in (0x08, 0x10, 0x18, 0x20, 0x28, 0x38))))
 
+# Since the firmware initialises fully (p0CE), the iPhone freezes when a running AOP is
+# stopped and reloaded. So only after a fresh Nura boot (or with NEUSTART=1 at your own risk).
+if akf.r32(0x44) & 0x10 and os.environ.get("NEUSTART") != "1":
+    sys.exit("AOP is already running – restarting freezes the iPhone. Reboot Nura first (or NEUSTART=1).")
+
 # 1) Stop the CPU, discard old messages
 akf.w32(0x44, akf.r32(0x44) & ~0x10)
 Mem(AUTOBOOT).w32(0, 0)
@@ -100,7 +105,8 @@ if os.environ.get("TLV") == "1":
     setze("GKTS", bytes(zufall))                                  # stack guard, one byte 0
     setze("GNRP", os.urandom(32))                                 # random seed
     setze("CNON", os.urandom(8))
-    setze("DICE", int(os.environ.get("ECID", "0"), 0))            # /chosen unique-chip-id
+    # /chosen unique-chip-id (ECID). Must not be 0: otherwise panic "PRNG !patchbay ecid=…" at startup.
+    setze("DICE", int(os.environ.get("ECID", "0"), 0) or (int.from_bytes(os.urandom(8), "little") | 1))
     setze("_COS", 0x8010)                                         # /chosen chip-id
     setze("RCOS", int(os.environ.get("CHIPREV", "0x11"), 0))      # /arm-io chip-revision
     setze("dArW", int(os.environ.get("DARW", "0xe0000"), 0))      # 128 KB buffer (firmware default size 0x20000)

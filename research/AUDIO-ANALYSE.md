@@ -398,3 +398,11 @@ iBoot wurde lokal mit dem GID-Schlüssel des eigenen iPhone 7 entschlüsselt (ga
   Zustand auf 0x21 wechselt. Vermutung: Der AOP startet „schlafend“ und braucht vom AP ein Wecksignal
   (wie bei Asahi: Verwaltungsnachricht IOP_PWR_STATE 0x0060_0000_0000_0220). Erster Versuch: danach lagen im
   Ausgang nur Datenmüll/Fehlerbits (0x81001/0xa0001); der zweite Versuch (`WECKEN=1`) hat das iPhone eingefroren.
+- Mit p0CE: Im NOCACHE-Abzug zeigt der Hauptstapel eine **Panik** „PRNG !patchbay ecid=%llx“ (0x1067346):
+  `DICE` (ECID) war 0. Jetzt füllt TLV=1 DICE mit einer Zufallszahl ≠ 0 (oder `ECID=` aus der Umgebung).
+- Im Leerlauf nimmt der AOP eine gesendete Nachricht (IOP_PWR_STATE 0x220) nicht aus dem Eingang (0x101 bleibt) –
+  passt zur Panik: die Firmware stand still, bevor die Mailbox bedient wurde.
+- **Achtung:** Einen laufenden AOP (mit p0CE-Firmware) anzuhalten und neu zu laden, friert das iPhone ein
+  (zweimal reproduziert). `aop_fw_boot.py` verweigert das jetzt, solange der AOP läuft (`NEUSTART=1` erzwingt).
+  Jeder Versuch braucht daher einen frischen Nura-Start. Neues Hilfsskript `tools/aop_mbox.py`
+  (status/lesen/wecken, entnimmt nur bei gültigem Zustand).

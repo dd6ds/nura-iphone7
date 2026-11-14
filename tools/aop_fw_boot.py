@@ -53,6 +53,11 @@ akf = Mem(AKF, 0x10000)
 log("vorher: CPU {:#x}, Fenster 08/10/18/20/28/38 = {}".format(
     akf.r32(0x44), " ".join(f"{akf.r32(o):#x}" for o in (0x08, 0x10, 0x18, 0x20, 0x28, 0x38))))
 
+# Seit die Firmware vollständig initialisiert (p0CE), friert das iPhone ein, wenn man einen laufenden
+# AOP anhält und neu lädt. Deshalb nur nach frischem Nura-Start (oder mit NEUSTART=1 auf eigenes Risiko).
+if akf.r32(0x44) & 0x10 and os.environ.get("NEUSTART") != "1":
+    sys.exit("AOP läuft bereits – Neustart friert das iPhone ein. Erst Nura neu booten (oder NEUSTART=1).")
+
 # 1) CPU anhalten, alte Nachrichten verwerfen
 akf.w32(0x44, akf.r32(0x44) & ~0x10)
 Mem(AUTOBOOT).w32(0, 0)
@@ -100,7 +105,8 @@ if os.environ.get("TLV") == "1":
     setze("GKTS", bytes(zufall))                                  # Stack-Schutzwert, ein Byte 0
     setze("GNRP", os.urandom(32))                                 # Zufalls-Startwert
     setze("CNON", os.urandom(8))
-    setze("DICE", int(os.environ.get("ECID", "0"), 0))            # /chosen unique-chip-id
+    # /chosen unique-chip-id (ECID). Darf nicht 0 sein: sonst Panik „PRNG !patchbay ecid=…“ beim Start.
+    setze("DICE", int(os.environ.get("ECID", "0"), 0) or (int.from_bytes(os.urandom(8), "little") | 1))
     setze("_COS", 0x8010)                                         # /chosen chip-id
     setze("RCOS", int(os.environ.get("CHIPREV", "0x11"), 0))      # /arm-io chip-revision
     setze("dArW", int(os.environ.get("DARW", "0xe0000"), 0))      # 128-KB-Puffer (Firmware-Default-Größe 0x20000)
