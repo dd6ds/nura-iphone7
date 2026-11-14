@@ -822,5 +822,18 @@
  "if self.t0 is None:                              # 1 s einschwingen, dann messen": "if self.t0 is None:                              # settle for 1 s, then measure",
  "print(f\"{MODUS}: {self.frames / dt:5.1f} Bilder/s | CPU phoc {100 * (p - self.start_cpu[0]) / TICK / dt:5.1f} % \"": "print(f\"{MODUS}: {self.frames / dt:5.1f} frames/s | CPU phoc {100 * (p - self.start_cpu[0]) / TICK / dt:5.1f} % \"",
  "f\"| CPU Client {100 * (s - self.start_cpu[1]) / TICK / dt:5.1f} %  (100 % = 1 Kern)\", flush=True)": "f\"| CPU client {100 * (s - self.start_cpu[1]) / TICK / dt:5.1f} %  (100 % = 1 core)\", flush=True)",
- "sys.exit(\"phoc läuft nicht\")": "sys.exit(\"phoc is not running\")"
+ "sys.exit(\"phoc läuft nicht\")": "sys.exit(\"phoc is not running\")",
+ "\"\"\"gpu_peek.py [--on] [block] [anzahl] – A10-GPU (AGX G9P) erkunden, NUR LESEN (root).": "\"\"\"gpu_peek.py [--on] [block] [count] – explore the A10 GPU (AGX G9P), READ ONLY (root).",
+ "--on schaltet vorher die PMGR-Domain \"gfx\" (0x2_0e080328) ein. block: pmgr (nur Zustand), sgx,": "--on first switches on the PMGR domain \"gfx\" (0x2_0e080328). block: pmgr (state only), sgx,",
+ "shared, kf (gfx-kf-IOP). Gelesen werden nur die ersten <anzahl> Bytes (Standard 0x40), Wort für Wort": "shared, kf (gfx-kf IOP). Only the first <count> bytes are read (default 0x40), word by word",
+ "mit sofortiger Ausgabe – hängt ein Zugriff, zeigt die letzte Zeile die Adresse. Mailbox-/FIFO-Bereiche": "with immediate output – if an access hangs, the last line shows the address. Mailbox/FIFO areas",
+ "werden nicht angefasst. pmgr, kf und shared sind gefahrlos; sgx friert ein (siehe unten).": "are not touched. pmgr, kf and shared are safe; sgx freezes (see below).",
+ "Blöcke laut ADT: sgx 0x2_01000000 (1 MB), shared 0x2_01d00000 (128 KB), kf 0x2_01d20000 (64 KB).\"\"\"": "Blocks per ADT: sgx 0x2_01000000 (1 MB), shared 0x2_01d00000 (128 KB), kf 0x2_01d20000 (64 KB).\"\"\"",
+ "log(f\"PMGR gfx {PMGR_GFX:#x} = {v:#010x}  soll={v & 0xf:#x} ist={(v >> 4) & 0xf:#x}\")": "log(f\"PMGR gfx {PMGR_GFX:#x} = {v:#010x}  target={v & 0xf:#x} actual={(v >> 4) & 0xf:#x}\")",
+ "log(f\"  nach Einschalten: {v:#010x}  ist={(v >> 4) & 0xf:#x}\")": "log(f\"  after switching on: {v:#010x}  actual={(v >> 4) & 0xf:#x}\")",
+ "sys.exit(\"gfx-Domain ist aus – Register nicht gelesen (mit --on einschalten)\")": "sys.exit(\"gfx domain is off – registers not read (switch on with --on)\")",
+ "# 2026-11-14 zweimal bestätigt: schon 1 Lesezugriff auf 0x2_01000000 friert das iPhone ein,": "# confirmed twice on 2026-11-14: a single read of 0x2_01000000 already freezes the iPhone",
+ "# solange die Unter-Domain GFX-SGX aus ist (die PMGR-Domain \"gfx\" allein reicht nicht).": "# while the sub-domain GFX-SGX is off (the PMGR domain \"gfx\" alone is not enough).",
+ "sys.exit(\"sgx: Lesen friert das iPhone ein, solange GFX-SGX aus ist – nur mit --force\")": "sys.exit(\"sgx: reading freezes the iPhone while GFX-SGX is off – only with --force\")",
+ "log(f\"  lese +{off:#05x} …\", end=\" \")": "log(f\"  reading +{off:#05x} …\", end=\" \")"
 }

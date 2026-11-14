@@ -15,6 +15,19 @@
 3. Antwort des Coprozessors (RTKit-Hello/Version) = erster Meilenstein. Derselbe RTKit-Start wird auch
    für den AOP gebraucht (Audio, Vibration, Bewegungssensoren).
 
+### Ergebnisse 2026-11-14 (tools/gpu_peek.py, nur lesend)
+- PMGR-Domain `gfx` (0x2_0e080328): aus = 0x0f000b00 (Bit 11 PARENT_OFF ist nur ein alter Merker,
+  GFX hat laut ADT keine Eltern-Domain). Einschalten → 0x0f0001ff (ist=0xf), stabil.
+- Unter-Domains GFX-SGX (148), GFX-KF (149), GFX-BUSY (150) haben **kein** PMGR-Register (psreg 0);
+  SGX/KF hängen unter GFX (124). Sie werden GPU-intern geschaltet.
+- gfx-kf-IOP 0x2_01d20000 (+0x000…+0x0ff) lesbar: +0x00 = 1, +0x38 = 1, +0x3c = 1, +0x40 = 0x00030000,
+  +0x48 = 0x79, Rest 0. +0x44 (bei M1-ASC: CPU_CONTROL, Bit 4 = RUN) = 0 → Coprozessor steht.
+- Gemeinsamer Block 0x2_01d00000 (+0x000…+0x0ff) lesbar, alles 0.
+- **GPU-Kern 0x2_01000000: schon 1 Lesezugriff friert das iPhone ein** (zweimal reproduziert) →
+  GFX-SGX ist aus. Nächster Schritt offline: im Kext `com.apple.AGXG9P` suchen, wie GFX-SGX/GFX-KF
+  eingeschaltet werden (vermutlich Register im gemeinsamen Block 0x2_01d00000) und wie der IOP
+  gestartet wird (Firmware-Ladeadresse, CPU-Start über +0x44).
+
 ## Weg 2: Software-Rendering beschleunigen (erledigt)
 Messung mit `tools/gfx_bench.py` (GTK4, Vollbild, braucht `py3-cairo`; iPhone muss entsperrt sein):
 
