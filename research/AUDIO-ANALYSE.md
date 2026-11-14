@@ -441,3 +441,18 @@ im 1-MB-Bereich ist nur 0xdf000..0xe0000), dann Endpunkte 32+ (SPU-Protokoll) f�
   IOP 0x80 (Daten 8) -> AP 0xa0; ohne Firmware-eigenen Speicher: IOP 0x89 (Größe<<10 | 0xcafe) -> AP 0xa1
   (48-Bit-Adresse); IOP 0x8d/0x8e (gemeinsamer Speicher), bis zu drei weitere 0x8x mit 0xcafe;
   IOP 0x88 -> AP 0xa5 -> Endpunkt bereit. Endpunkt 48 meldete sich mit 0x80. `gpu_rtkit.py --spu` beantwortet das.
+
+### AOP: alle Dienste gestartet – Einfrieren direkt nach „aop-audio … ready!!“ (2026-11-14)
+- Endpunkt-Namen aus der Firmware-Tabelle 0x10a28c0 (Name, Endpunkt):
+  0 management, 1 crashlog, 2 syslog, 4 ioreporting, 32 misc, 33 accel, 34 gyro, 35 compass, 36 pressure,
+  37 aggregate1, **38 mca**, 39 cma, 40 devmotion, 41 borealis, 42 profile, 43 prox, **44 aop-audio**, **45 mux**,
+  46 aop-button, 47 turtle, 48 mesa, 49 devmotion6, 50 devmotion10.
+- Die Dienste starten nacheinander und warten jeweils auf den SPU-Handshake des AP (0x80->0xa0, 0x89->0xa1 …).
+  Reihenfolge: 48, 41, 46, 39, 38, 33, 37, 32, 44, 47, 45, 43, 42, 50, 49, 40, 36, 35, 34.
+  Puffergrößen (0x89, Größe = Bits 31:16 << 6): meist 0x8000, borealis/aop-button 0x28000, cma 0x68000, mca 0x74000.
+- Mit allen Handshakes: syslog „Button service ready!“, „ProfileService ready“, „CumulusService ready!!“,
+  „AmpWorker: ARC service not found / BTMSPK service not found“, „BoreaOwlSvc ready!!“,
+  „aop-audio v150.1 (built Oct 15 2023) ready!!“. Danach schicken alle SPU-Endpunkte 0x85 (Daten im Ring) –
+  und **das iPhone friert sofort ein** (< 0,1 s, Protokoll per fsync gesichert). Vermutung: Der Audio-Teil schaltet
+  beim Start Takt/Strom/Pins (MCA, Verstärker, „mux“), die Linux ebenfalls benutzt. Nächster Schritt: Kette vor
+  Endpunkt 44 (aop-audio) anhalten und prüfen, ob das System dann stabil bleibt.

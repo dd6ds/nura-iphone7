@@ -1081,5 +1081,7 @@
  "if e != 0 and (\"EP_ERLAUBT\" not in os.environ or e in erlaubt):": "if e != 0 and (\"EP_ERLAUBT\" not in os.environ or e in erlaubt):",
  "elif ep >= 32 and \"--spu\" in sys.argv and ep in spu_eps:": "elif ep >= 32 and \"--spu\" in sys.argv and ep in spu_eps:",
  "# SPU_EP=48,37: nur diesen SPU-Endpunkten antworten (Standard: allen)": "# SPU_EP=48,37: only answer these SPU endpoints (default: all)",
- "spu_eps = {int(x, 0) for x in os.environ[\"SPU_EP\"].split(\",\")} if \"SPU_EP\" in os.environ else set(range(32, 64))": "spu_eps = {int(x, 0) for x in os.environ[\"SPU_EP\"].split(\",\")} if \"SPU_EP\" in os.environ else set(range(32, 64))"
+ "spu_eps = {int(x, 0) for x in os.environ[\"SPU_EP\"].split(\",\")} if \"SPU_EP\" in os.environ else set(range(32, 64))": "spu_eps = {int(x, 0) for x in os.environ[\"SPU_EP\"].split(\",\")} if \"SPU_EP\" in os.environ else set(range(32, 64))",
+ "if os.environ.get(\"AKF\", \"\").lower() == \"0x210800000\":      # AOP t8010 (Firmware-Tabelle 0x10a28c0)": "if os.environ.get(\"AKF\", \"\").lower() == \"0x210800000\":      # AOP t8010 (firmware table 0x10a28c0)",
+ "NAMEN.update(dict(zip(range(32, 51), \"misc accel gyro compass pressure aggregate1 mca cma devmotion borealis profile prox aop-audio mux aop-button turtle mesa devmotion6 devmotion10\".split())))": "NAMEN.update(dict(zip(range(32, 51), \"misc accel gyro compass pressure aggregate1 mca cma devmotion borealis profile prox aop-audio mux aop-button turtle mesa devmotion6 devmotion10\".split())))"
 }

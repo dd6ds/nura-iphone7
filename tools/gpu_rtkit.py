@@ -14,6 +14,8 @@ import ctypes, mmap, os, sys, time
 AKF = int(os.environ.get("AKF", "0x201D20000"), 0)   # AOP: AKF=0x210800000
 dauer = float(sys.argv[1]) if len(sys.argv) > 1 else 5
 NAMEN = {0: "Verwaltung", 1: "crashlog", 2: "syslog", 3: "debug", 4: "ioreport", 8: "oslog"}
+if os.environ.get("AKF", "").lower() == "0x210800000":      # AOP t8010 (Firmware-Tabelle 0x10a28c0)
+    NAMEN.update(dict(zip(range(32, 51), "misc accel gyro compass pressure aggregate1 mca cma devmotion borealis profile prox aop-audio mux aop-button turtle mesa devmotion6 devmotion10".split())))
 TYPEN = {1: "HELLO", 2: "HELLO_ACK", 5: "STARTEP", 6: "IOP_PWR", 7: "IOP_PWR_ACK", 8: "EPMAP", 0xb: "AP_PWR"}
 
 fd = os.open("/dev/mem", os.O_RDWR | os.O_SYNC)
