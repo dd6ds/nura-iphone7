@@ -66,7 +66,21 @@ Basis = gfx-kf-Block 0x2_01d20000 („akf“), GFX-Zusatz = gemeinsamer Block 0x
 
 - Kein fester RAM-Bereich für die GFX-Firmware im ADT (anders als AOP: region-base 0x2_10e00000).
   iOS legt sie zur Laufzeit ab (AGXFirmwareKext → requestFirmwareBinary) und stellt nur das Fenster ein.
-- Plan für einen Startversuch (noch nicht durchgeführt):
+### ✅ Erster Start des GPU-Coprozessors (2026-11-14, tools/gpu_fw_boot.py)
+- Firmware = `__TEXT.__const` ab Byte 9, Länge 0x5B320 (requestFirmwareBinary, Rev. 3); Kopf davor:
+  Build „“ (+0) und Version „Release“ (+1). Erstes Wort 0xEA000006 (ARM32 `b`), Laufzeitbedarf 0x8F000.
+- RAM: DT `reserved-memory/gfx-fw@840000000` (1 MB, no-map). /dev/mem bildet ihn als Gerätespeicher ab →
+  nur ausgerichtete 32-Bit-Zugriffe (memset/memmove = SIGBUS).
+- Fenster: IOP-Adresse 0 → phys. 0x8_4000_0000, Länge 0x100000 (akf und agx, s. Tabelle oben).
+- **Ohne agx+0x2048 Bit 0 läuft die CPU nicht** (RUN-Bit gesetzt, aber RAM bleibt unverändert).
+  agx+0x2048 vorher = 0x6, danach 0x1 (Wert gelesen nach dem Setzen).
+- Mit Bit 0: nach **2 ms erste Nachricht `0x00100000000c000c`** = RTKit-HELLO (Typ 1 in Bit 52–59,
+  Version min = max = 12). Firmware beschreibt Daten (70 Wörter ab +0x31ec0) und Variablen/Stack
+  (107 Wörter ab +0x890c0). IDLE_STATUS 0x61 → 0x6f, OUTBOX_CTRL danach 0x21101. iPhone bleibt stabil.
+- Nächster Schritt: RTKit-Handshake (HELLO_ACK Typ 2 mit Version 12 senden, dann Endpunkt-Karte EPMAP
+  lesen) – wie Asahi `rtkit.c`, aber älteres Nachrichtenformat (Endpunkt-Feld noch klären).
+
+- Ursprünglicher Plan (umgesetzt):
   1. Im DT einen `reserved-memory`-Bereich (z. B. 1 MB, 16-KB-ausgerichtet) für die Firmware anlegen.
   2. gfx einschalten, Firmware per /dev/mem dorthin kopieren, Fenster (IOP-Adresse 0) setzen.
   3. Interrupt-Masken setzen, CPU starten (akf+0x44 Bit 4), Ausgang auf die erste RTKit-Nachricht pollen.
