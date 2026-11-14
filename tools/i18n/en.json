@@ -1031,5 +1031,7 @@
  "# HELLO_ACK=<version>: das HELLO wurde schon von einem anderen Skript abgeholt -> sofort bestätigen": "# HELLO_ACK=<version>: the HELLO was already picked up by another script -> acknowledge immediately",
  "log(f\"  HELLO schon abgeholt – sende HELLO_ACK Version {v}\")": "log(f\"  HELLO already picked up – sending HELLO_ACK version {v}\")",
  "sys.exit(\"Coprozessor läuft nicht – erst gpu_fw_boot.py <fw> 0 --laufen --neu (AOP: aop_fw_boot.py)\")": "sys.exit(\"coprocessor not running – run gpu_fw_boot.py <fw> 0 --laufen --neu first (AOP: aop_fw_boot.py)\")",
- "log(\"Endpunkte der Firmware: \" + \", \".join(f\"{e} ({NAMEN.get(e, '?')})\" for e in endpunkte))": "log(\"Firmware endpoints: \" + \", \".join(f\"{e} ({NAMEN.get(e, '?')})\" for e in endpunkte))"
+ "log(\"Endpunkte der Firmware: \" + \", \".join(f\"{e} ({NAMEN.get(e, '?')})\" for e in endpunkte))": "log(\"Firmware endpoints: \" + \", \".join(f\"{e} ({NAMEN.get(e, '?')})\" for e in endpunkte))",
+ "RAM = 0x840400000                      # DT reserved-memory aop-fw@840400000 (4 MB seit 2026-11-14)": "RAM = 0x840400000                      # DT reserved-memory aop-fw@840400000 (4 MB since 2026-11-14)",
+ "RAM_LEN = int(os.environ.get(\"RAM_LEN\", \"0x400000\"), 0)   # ganzes Fenster; Firmware nutzt das erste MB": "RAM_LEN = int(os.environ.get(\"RAM_LEN\", \"0x400000\"), 0)   # whole window; the firmware uses the first MB"
 }

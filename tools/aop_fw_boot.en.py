@@ -12,7 +12,8 @@ import ctypes, mmap, os, struct, sys, time
 
 AKF = 0x210800000                      # AOP control block (ADT aop reg[0])
 AUTOBOOT = 0x210000500                 # auto-boot register (ADT aop reg[2], AppleA7IOP index 2)
-RAM, RAM_LEN = 0x840400000, 0x100000   # DT reserved-memory aop-fw@840400000
+RAM = 0x840400000                      # DT reserved-memory aop-fw@840400000 (4 MB since 2026-11-14)
+RAM_LEN = int(os.environ.get("RAM_LEN", "0x400000"), 0)   # whole window; the firmware uses the first MB
 IOP_BASIS = int(os.environ.get("IOP_BASIS", "0x01000000"), 0)   # window start address as seen by the AOP
 EXT_OFF = 0xD8000
 

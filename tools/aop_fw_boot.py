@@ -12,7 +12,8 @@ import ctypes, mmap, os, struct, sys, time
 
 AKF = 0x210800000                      # AOP-Steuerblock (ADT aop reg[0])
 AUTOBOOT = 0x210000500                 # Auto-Boot-Register (ADT aop reg[2], AppleA7IOP Index 2)
-RAM, RAM_LEN = 0x840400000, 0x100000   # DT reserved-memory aop-fw@840400000
+RAM = 0x840400000                      # DT reserved-memory aop-fw@840400000 (4 MB seit 2026-11-14)
+RAM_LEN = int(os.environ.get("RAM_LEN", "0x400000"), 0)   # ganzes Fenster; Firmware nutzt das erste MB
 IOP_BASIS = int(os.environ.get("IOP_BASIS", "0x01000000"), 0)   # Fenster-Startadresse aus Sicht des AOP
 EXT_OFF = 0xD8000
 
