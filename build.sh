@@ -386,6 +386,9 @@ idle-dim=false
 
 [org.gnome.desktop.interface]
 enable-animations=false
+
+[mobi.phosh.osk]
+scaling=['auto-landscape']
 GSO
     # Schemas beim ersten Boot auf dem Gerät kompilieren (Host kann aarch64 nicht ausführen)
     sudo tee "$m/etc/systemd/system/iphone-nura-schemas.service" >/dev/null <<'UNIT'
