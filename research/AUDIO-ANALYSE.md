@@ -484,3 +484,13 @@ im 1-MB-Bereich ist nur 0xdf000..0xe0000), dann Endpunkte 32+ (SPU-Protokoll) f�
   Boot-Paket). `tools/aop_fw_boot.py` setzt den Wert zusätzlich selbst.
 - Damit laufen jetzt alle 19 AOP-Dienste unter Linux und melden Daten (0x85). Nächster Schritt: Kernel-Treiber
   (Mailbox per Interrupt, SPU-Ringe lesen/schreiben), dann aop-audio (44), mca (38), mux (45) ansprechen.
+
+### Codec-Test mit laufendem AOP (2026-11-14, zweites iPhone)
+- AOP vollständig gestartet (alle Dienste, „aop-audio ready“), Maggie geladen (CDONE = 1), AOP-MCLK 0x48, NCO0 12 MHz,
+  MCA0 ClkCon 0x50, i2s-switch aud0 -> pin4: **PLL der CS42L71-Brücke rastet weiterhin nicht ein, RCO bleibt aus.**
+  Der laufende AOP allein liefert dem Codec also keinen Referenztakt.
+- iOS-Kernel: Lautsprecher-Audio läuft über AP-Treiber (AppleCS42L71Audio, AppleCS35L26Amp, AppleMaggieArcAudio
+  mit `_enableMCLK`/`_updateArcIOState`). Der AOP-Dienst „mux“ führt Referenzzähler für MCLK zwischen AP und AOP
+  („enableMClk(%d), aopCnt %d, apCnt %d“, „MUX SETUP, ap = %u, aop = %u“) und spricht per UART mit Maggie
+  („MUX UART PLAY/SYS“). Nächste Spur: AP-Anforderung an den mux-Dienst (MCLK/Mux für den AP) senden.
+- libgpiod (gpioget/gpioset) fehlte im Systemabbild – jetzt in EXTRA_PKGS.

@@ -41,7 +41,7 @@ NVME_BOOT="${NVME_BOOT:-1}"   # 0 = PCIe-Port 0 (interner Speicher) beim Boot au
 NVME_AUTOLOAD="${NVME_AUTOLOAD:-1}"   # 0 = nvme-Modul gesperrt (nur manuell per modprobe)
 # spidev.bufsiz: Maggie-FPGA-Bitstream (71 KB) in einem SPI-Durchgang laden (Audio-Tests)
 CMDLINE="${CMDLINE:-console=tty0 earlycon=tty0 fbcon=rotate:0 spidev.bufsiz=262144$([[ "$PCIE_BOOT" == 1 ]] || echo ' pcie_apple_t8010.disable=1')$([[ "$NVME_BOOT" == 1 ]] || echo ' pcie_apple_t8010.skip_ports=0x1')}"
-EXTRA_PKGS="${EXTRA_PKGS:-openssh,htop,nano},postmarketos-mkinitfs-hook-netboot,bluez"
+EXTRA_PKGS="${EXTRA_PKGS:-openssh,htop,nano},postmarketos-mkinitfs-hook-netboot,bluez,libgpiod"
 if [[ "$UI" == "phosh" ]]; then
     EXTRA_PKGS="${EXTRA_PKGS},wayvnc,mesa-dri-gallium,gnome-console"
     : "${EXTRA_SPACE:=1536}"
