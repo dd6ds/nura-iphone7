@@ -975,5 +975,6 @@
  "echo \"-- Melde das DFU-Gerät frisch an (USB-Controller $pci zurücksetzen) …\"": "echo \"-- Re-enumerating the DFU device (resetting USB controller $pci) …\"",
  "echo \"-- palera1n rootless (iOS mit Jailbreak)\"": "echo \"-- palera1n rootless (iOS with jailbreak)\"",
  "sudo \"$P1N\" --cli -l      # --cli: die Text-Oberfläche (TUI) findet DFU-Geräte nicht zuverlässig": "sudo \"$P1N\" --cli -l      # --cli: the text UI (TUI) does not find DFU devices reliably",
- "echo \"Fertig. Für Nura später wieder: tools/cleanup.sh && ./boot.sh\"": "echo \"Done. For Nura later again: tools/cleanup.sh && ./boot.sh\""
+ "echo \"Fertig. Für Nura später wieder: tools/cleanup.sh && ./boot.sh\"": "echo \"Done. For Nura later again: tools/cleanup.sh && ./boot.sh\"",
+ "sudo systemctl unmask --runtime usbmuxd.service 2>/dev/null || true   # cleanup.sh sperrt mit --runtime": "sudo systemctl unmask --runtime usbmuxd.service 2>/dev/null || true   # cleanup.sh masks with --runtime"
 }

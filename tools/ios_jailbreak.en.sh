@@ -11,6 +11,7 @@ P1N="${P1N:-$HOME/.local/bin/palera1n}"
 sudo -v
 pkill -f '[/]palera1n ' 2>/dev/null && sleep 1 || true
 echo "-- re-enable usbmuxd (tools/cleanup.en.sh blocks it for the Nura boot)"
+sudo systemctl unmask --runtime usbmuxd.service 2>/dev/null || true   # cleanup.en.sh masks with --runtime
 sudo systemctl unmask usbmuxd.service usbmuxd.socket 2>/dev/null || true
 sudo systemctl start usbmuxd.socket 2>/dev/null || sudo systemctl start usbmuxd 2>/dev/null || true
 command -v iproxy >/dev/null || { echo "-- iproxy fehlt: installiere libusbmuxd-tools"; sudo apt-get install -y libusbmuxd-tools; }
