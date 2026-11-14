@@ -90,9 +90,19 @@ Basis = gfx-kf-Block 0x2_01d20000 („akf“), GFX-Zusatz = gemeinsamer Block 0x
   `<- 0x0080000000000003` EPMAP Basis 0 (Ep 0, 1) → `-> 0x0080000000000001` (MORE) →
   `<- 0x0088000100000003` EPMAP Basis 1, LAST (Ep 32, 33) → `-> 0x0088000100000000`.
 - **Endpunkte: 0 Verwaltung, 1 crashlog, 32 und 33 (GPU-eigene Dienste).**
-- IOP_PWR_STATE (6) = 0x20 und AP_PWR_STATE (0xb) = 0x20 danach: keine Antwort (Eingang wird geleert).
-  Nächster Schritt: Endpunkte starten (STARTEP Typ 5: Ep in Bit 39:32, Flag Bit 1), crashlog-Puffer im
-  freien Teil des reservierten RAM (IOP-Adr. 0x90000–0xfffff) bereitstellen, Antworten auswerten.
+
+### ✅ Firmware vollständig hochgefahren (2026-11-14, gpu_rtkit.py 4 --start --puffer)
+- Verwaltung im Betrieb (Sprungtabelle IOP 0x2a288, Typ 0..15): 5 STARTEP (Ep Bit 47:32, unteres Wort
+  1 oder 2), 6 IOP_PWR, 0xA Abfrage (nur Nutzdaten 0), 0xB AP_PWR (gültig u. a. 0x20/0x21; derselbe Wert
+  erneut → „Invalid AP power“); 0/7/15 ignoriert, Rest Fehler.
+- Ablauf nach dem Handshake:
+  `-> 0x0050000100000002` STARTEP 1, `-> 0x0050002000000002` STARTEP 32, `-> 0x0050002100000002` STARTEP 33
+  `<- 0x0110200000000000` crashlog: BUFFER_REQUEST (Typ 1, 2 Seiten, Adresse 0)
+  `-> 0x0110200000090000` Puffer bei IOP-Adresse 0x90000 (0x8000 Byte reserviert)
+  `<- 0x0070000000000020` **IOP_PWR_ACK 0x20 – Coprozessor voll an** (kommt erst nach dem crashlog-Puffer)
+  `-> 0x00b0000000000020` AP_PWR 0x20, `<- 0x00b0000000000020` bestätigt.
+- Endpunkte 32/33 (GPU-Dienste) bleiben still: sie warten auf den Treiber-Teil von `AGXG9P`
+  (Initialisierungsstrukturen, Kommandopuffer). Das ist der nächste, sehr große Schritt.
 
 - Ursprünglicher Plan (umgesetzt):
   1. Im DT einen `reserved-memory`-Bereich (z. B. 1 MB, 16-KB-ausgerichtet) für die Firmware anlegen.

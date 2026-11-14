@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
-"""gpu_rtkit.en.py [seconds] – EXPERIMENT: RTKit handshake with the running GPU coprocessor (root).
+"""gpu_rtkit.en.py [seconds] [--start] – EXPERIMENT: RTKit handshake with the running GPU coprocessor (root).
+--start: after the endpoint map start all endpoints via STARTEP (flag via STARTFLAG, default 2).
+--puffer: serve the endpoints' buffer requests from the reserved RAM (IOP 0x90000..0xfffff).
 First: gpu_fw_boot.en.py <fw> 0 --laufen --neu  (starts the firmware, leaves its HELLO in the mailbox).
 Message format of this generation (derived from the first HELLO 0x00100000000c000c):
   Bit 63:56 = endpoint, management (endpoint 0): bit 55:52 = type, rest = payload.
 Management as in Asahi rtkit.c: HELLO 1 (min/max version bit 15:0/31:16) -> HELLO_ACK 2;
 EPMAP 8 (base bit 34:32, bitmap 31:0, LAST bit 51) -> reply 8 with base + LAST or MORE (bit 0).
-Starts no endpoints and allocates no memory – only shows what the firmware offers."""
+Without options it starts no endpoints and allocates no memory."""
 import ctypes, mmap, os, sys, time
 
 AKF = 0x201D20000
@@ -50,8 +52,9 @@ def verwaltung(typ, daten):
 if not r32(0x44) & 0x10:
     sys.exit("Coprocessor not running – first gpu_fw_boot.en.py <fw> 0 --laufen --neu")
 endpunkte = []
+puffer_frei = 0x90000                                # next free IOP address for buffers
 t0 = time.time()
-# After the handshake (0.5 s quiet) send power commands as a test (no reply so far):
+# After the handshake (0.5 s quiet) send power commands; IOP_PWR_ACK only arrives after the crashlog buffer:
 # IOP_PWR_STATE (6) = 0x20 (on), then AP_PWR_STATE (0xb) = 0x20.
 nachschub = [(6, 0x20), (0xb, 0x20)]
 ack_zeit, letzte_nachricht = None, time.time()
@@ -70,6 +73,18 @@ while time.time() - t0 < dauer:
     log(f"{time.time() - t0:6.3f}s <- {msg:#018x}  ep {ep} ({NAMEN.get(ep, '?')})"
         + (f", type {typ} ({TYPEN.get(typ, '?')})" if ep == 0 else ""))
     if ep != 0:
+        # Buffer request (RTKit BUFFER_REQUEST): type bit 55:52 = 1, size in pages bit 51:44,
+        # address bit 41:0 = 0 -> allocate memory from the free part of the reserved RAM
+        # (IOP address 0x90000.., the firmware itself needs 0..0x8f000) and reply with the address.
+        etyp, seiten, adr = (msg >> 52) & 0xf, (msg >> 44) & 0xff, msg & ((1 << 42) - 1)
+        if etyp == 1 and adr == 0 and "--puffer" in sys.argv:
+            groesse = seiten * 0x4000                      # 16 KB pages to be safe
+            if puffer_frei + groesse > 0x100000:
+                log(f"  Buffer request ({seiten} pages) no longer fits into the reserved RAM")
+                continue
+            log(f"  Buffer request: {seiten} pages -> IOP address {puffer_frei:#x} ({groesse:#x} bytes)")
+            senden((ep << 56) | (1 << 52) | (seiten << 44) | puffer_frei)
+            puffer_frei += groesse
         continue
     if typ == 1:                                     # HELLO
         vmin, vmax = msg & 0xffff, (msg >> 16) & 0xffff
@@ -86,4 +101,11 @@ while time.time() - t0 < dauer:
         verwaltung(8, (basis << 32) | ((1 << 51) if letzte else 1))
         if letzte:
             log("Endpoints of the GPU firmware: " + ", ".join(f"{e} ({NAMEN.get(e, '?')})" for e in endpunkte))
+            if "--start" in sys.argv:
+                # STARTEP (5): endpoint in bit 47:32, low word 1 or 2 (firmware handler IOP 0x2a29c)
+                flag = int(os.environ.get("STARTFLAG", "2"))
+                for e in endpunkte:
+                    if e != 0:
+                        log(f"  STARTEP endpoint {e} (flag {flag})")
+                        verwaltung(5, (e << 32) | flag)
 log(f"End after {dauer:.0f}s; IDLE {r32(0x4040):#x}, IN {r32(0x4008):#x}, OUT {r32(0x4020):#x}")

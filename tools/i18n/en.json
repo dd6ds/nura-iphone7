@@ -903,5 +903,19 @@
  "# ACK-Format per Umgebung: beide (Standard, wie Asahi: min | max << 16) oder nur min": "# ACK format via environment: both (default, as Asahi: min | max << 16) or min only",
  "log(f\"  EPMAP Basis {basis}: Endpunkte {neu}{' (letzte)' if letzte else ''}\")": "log(f\"  EPMAP base {basis}: endpoints {neu}{' (last)' if letzte else ''}\")",
  "log(\"Endpunkte der GPU-Firmware: \" + \", \".join(f\"{e} ({NAMEN.get(e, '?')})\" for e in endpunkte))": "log(\"Endpoints of the GPU firmware: \" + \", \".join(f\"{e} ({NAMEN.get(e, '?')})\" for e in endpunkte))",
- "log(f\"Ende nach {dauer:.0f}s; IDLE {r32(0x4040):#x}, IN {r32(0x4008):#x}, OUT {r32(0x4020):#x}\")": "log(f\"End after {dauer:.0f}s; IDLE {r32(0x4040):#x}, IN {r32(0x4008):#x}, OUT {r32(0x4020):#x}\")"
+ "log(f\"Ende nach {dauer:.0f}s; IDLE {r32(0x4040):#x}, IN {r32(0x4008):#x}, OUT {r32(0x4020):#x}\")": "log(f\"End after {dauer:.0f}s; IDLE {r32(0x4040):#x}, IN {r32(0x4008):#x}, OUT {r32(0x4020):#x}\")",
+ "\"\"\"gpu_rtkit.py [sekunden] [--start] – EXPERIMENT: RTKit-Handshake mit dem laufenden GPU-Coprozessor (root).": "\"\"\"gpu_rtkit.py [seconds] [--start] – EXPERIMENT: RTKit handshake with the running GPU coprocessor (root).",
+ "--start: nach der Endpunkt-Karte alle Endpunkte per STARTEP starten (Flag per STARTFLAG, Standard 2).": "--start: after the endpoint map start all endpoints via STARTEP (flag via STARTFLAG, default 2).",
+ "--puffer: Puffer-Anforderungen der Endpunkte aus dem reservierten RAM (IOP 0x90000..0xfffff) bedienen.": "--puffer: serve the endpoints' buffer requests from the reserved RAM (IOP 0x90000..0xfffff).",
+ "Ohne Optionen startet es keine Endpunkte und vergibt keinen Speicher.\"\"\"": "Without options it starts no endpoints and allocates no memory.\"\"\"",
+ "puffer_frei = 0x90000                                # nächste freie IOP-Adresse für Puffer": "puffer_frei = 0x90000                                # next free IOP address for buffers",
+ "# Nach dem Handshake (0,5 s still) Strom-Anweisungen senden; IOP_PWR_ACK kommt erst nach dem crashlog-Puffer:": "# After the handshake (0.5 s quiet) send power commands; IOP_PWR_ACK only arrives after the crashlog buffer:",
+ "# Puffer-Anforderung (RTKit BUFFER_REQUEST): Typ Bit 55:52 = 1, Größe in Seiten Bit 51:44,": "# Buffer request (RTKit BUFFER_REQUEST): type bit 55:52 = 1, size in pages bit 51:44,",
+ "# Adresse Bit 41:0 = 0 -> Speicher aus dem freien Teil des reservierten RAM vergeben": "# address bit 41:0 = 0 -> allocate memory from the free part of the reserved RAM",
+ "# (IOP-Adresse 0x90000.., Firmware selbst braucht 0..0x8f000) und mit Adresse antworten.": "# (IOP address 0x90000.., the firmware itself needs 0..0x8f000) and reply with the address.",
+ "groesse = seiten * 0x4000                      # vorsichtshalber 16-KB-Seiten": "groesse = seiten * 0x4000                      # 16 KB pages to be safe",
+ "log(f\"  Puffer-Anforderung ({seiten} Seiten) passt nicht mehr in den reservierten RAM\")": "log(f\"  Buffer request ({seiten} pages) no longer fits into the reserved RAM\")",
+ "log(f\"  Puffer-Anforderung: {seiten} Seiten -> IOP-Adresse {puffer_frei:#x} ({groesse:#x} Byte)\")": "log(f\"  Buffer request: {seiten} pages -> IOP address {puffer_frei:#x} ({groesse:#x} bytes)\")",
+ "# STARTEP (5): Endpunkt in Bit 47:32, unteres Wort 1 oder 2 (Firmware-Handler IOP 0x2a29c)": "# STARTEP (5): endpoint in bit 47:32, low word 1 or 2 (firmware handler IOP 0x2a29c)",
+ "log(f\"  STARTEP Endpunkt {e} (Flag {flag})\")": "log(f\"  STARTEP endpoint {e} (flag {flag})\")"
 }
