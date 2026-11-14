@@ -642,3 +642,27 @@ im 1-MB-Bereich ist nur 0xdf000..0xe0000), dann Endpunkte 32+ (SPU-Protokoll) f�
   0x6a = Panic (Text im vom AP gestellten Panic-Puffer).
 - Nächster Schritt: AP-Seite aus AppleSmartIO/AppleSmartIODMA nachbauen – Puffer (Panic/Coredump/Perf/Trace),
   „OS active“, dann pro DMA-Kanal Konfiguration (Shim: FIFO/Trigger/Limit) und Segment-/Puffer-Übergabe.
+
+### SIO-DMA angesprochen: Puffer, Shim-Konfiguration, DMA-Start (2026-11-14, 19 Uhr)
+- `tools/sio_ctl.py` (nach `sio_boot.py`): Nachbau AppleSmartIO/AppleSmartIODMA.
+  - **setParam** = Opcode 3 auf Endpunkt 0 (Parameter = Kennung, Daten = Wert), Antwort Opcode 0x65 (ACK).
+    Kennungen: 0x0f/0x10 Panic-Puffer (Seite, 0x4000), 0x1a/0x1b Coredump (0x2000), 0x01/0x02 Segmentspeicher
+    (Seite, 0xaaa Einträge à 12 Byte), 0x0b/0x0c Antwortspeicher (Seite, 0x1040), 0x0d/0x0e Perf, 0x05/0x06
+    JConsole, 0x11/0x12 Trace, 0x08/0x09 weiterer Puffer. **Seitennummern = physische Adresse >> 12** – die SIO
+    greift selbst auf beliebigen DRAM zu (Panic-Text kam an).
+  - **Shim konfigurieren** = Opcode 5 auf Endpunkt = DMA-Kanal, Daten = Puffer-Handle (Index im Segmentspeicher,
+    Eintrag 12 Byte): +0 XFER, +4 TIMEOUT, +8 FIFO, +0xc TRIGGER, +0x10 LIMIT, +0x14 cfg5, +0x18 Rahmengröße,
+    +0x1c cfg6 (Werte aus ADT `dma-channels`, mca1 TX: 0x2a, XFER 0x21, FIFO 0xcc, TRIGGER 0xac). ACK ✔.
+  - **DMA starten** = Opcode 6, Daten = Handle H; Kopf (6 Einträge): +0x38 Richtung, +0x3c Segmentanzahl;
+    Segmente ab Eintrag H+6, je {u64 physische Adresse, u32 Länge}. ACK ✔.
+- Erster Start mit ausgeschaltetem mca1: SIO-Panic „Shim DMA unavailable error: RAW tx 0x4000“ (Text im
+  Panic-Puffer). Mit `mca_init.py 1` (PMGR mca1 an) kein Panic mehr – aber der MCA zieht keine Daten, weil
+  er noch nicht als Sender läuft.
+- AppleAE2MCA hat für mca-version ≥ 4 eine eigene Registerfolge (`_setIISConfig_v4`, 0x…644c5f0):
+  3 = 3 (Reset, warten bis Bit 1:0 = 0), 9 = 1 (warten bis Bit 0 = 0), 8 = 7 = 0x1fff (IRQ-Status löschen),
+  2 = (0x2000 − RX-Bits<<8) | (0x20 − TX-Bits), **0x19 = txfifocfg** ((Tiefe−1)<<16 | 4), 0x21 = rxfifocfg,
+  5 = Takt/Teiler, 0x1a/0x22 = TX/RX-Slotmasken, 0x1b/0x23 = 0, **0x18 = TX-Serialisierer** (0x33 | Slot-Versatz
+  << 8 | Flags, Bit 0 = an), 0x20 = RX-Serialisierer, 8 = IRQ-Maske 0x1fe4, 4 = Takt-/Rahmenformat.
+  `tools/mca_init.py` nutzt noch die alte (v<4-)Folge – das erklärt, warum dort nur 4/0xb/0xe hängen blieben.
+- Nächster Schritt: mca1 nach v4-Folge als TDM-Sender einrichten (Format aus ADT audio-data cs35l26 / tdm-config),
+  Serialisierer starten, dann DMA-Puffer (Sinus) laufen lassen und den CS35L26 nach iOS-Folge einschalten.
