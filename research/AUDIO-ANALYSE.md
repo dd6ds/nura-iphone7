@@ -471,3 +471,16 @@ im 1-MB-Bereich ist nur 0xdf000..0xe0000), dann Endpunkte 32+ (SPU-Protokoll) f�
   Das AOP bildet nur seinen eigenen Block 0x2_1000_0000–0x2_10e0_0000 ab, keine AP-Peripherie.
 - Nächste Schritte: (1) Weck-Handshake aus AppleA7IOPV2 genau verstehen, (2) Mailbox nur noch nach Wecken bzw.
   interruptgesteuert lesen (Kernel-Treiber statt /dev/mem-Polling), (3) dann die Audio-Dienste (44/38/45) ansprechen.
+
+### AOP: Ursache des Einfrierens gefunden und behoben – Auto-PM von aop_busif (2026-11-14)
+- PMGR-mini (0x2_1020_0000): `aop_cpu` 0x80048, `aop_filter` 0x80050, `aop_busif` 0x80058. Linux
+  (`pmgr-pwrstate.c`) schaltet beim Start für alle eingeschalteten Domänen **Auto-PM** ein (Bit 28). Nach dem Start
+  stand bei aop_busif `0x1f0002ff` – Bit 9 „WAS_CLKGATED“: der AOP-Bus wurde im Leerlauf abgeschaltet. Ein AP-Zugriff
+  auf die AKF-Mailbox in so einem Moment hängt den Bus auf -> totales Einfrieren.
+- Abhilfe: Mindestzustand PS_MIN (Bit 19:16) = 0xf (aktiv) für alle drei Domänen. Zur Laufzeit per /dev/mem gesetzt
+  (`0x1f0f02ff`), danach Mailbox lesen und alle 0x85-Meldungen verarbeiten: **kein Einfrieren mehr**, auch nach
+  „aop-audio v150.1 … ready!!“.
+- Dauerhaft: DT `apple,min-state = <15>;` für ps_aop_cpu/filter/busif (Patch 0018-dts-t8010-aop-pmgr-min, im
+  Boot-Paket). `tools/aop_fw_boot.py` setzt den Wert zusätzlich selbst.
+- Damit laufen jetzt alle 19 AOP-Dienste unter Linux und melden Daten (0x85). Nächster Schritt: Kernel-Treiber
+  (Mailbox per Interrupt, SPU-Ringe lesen/schreiben), dann aop-audio (44), mca (38), mux (45) ansprechen.

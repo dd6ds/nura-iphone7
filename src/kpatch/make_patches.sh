@@ -44,6 +44,7 @@ mk 0014-dts-t8010-bluetooth         $B $N $DTS/t8010.dtsi $DTS/t8010-7.dtsi
 mk 0015-pci-apple-t8010-nvme-port   $Q $T drivers/pci/controller/pcie-apple-t8010.c include/linux/pcie-apple-t8010.h
 mk 0016-nvme-apple-embedded         $O $T drivers/nvme/host/pci.c drivers/nvme/host/nvme.h drivers/nvme/host/core.c
 mk 0017-dts-t8010-nvme-spi1         $N $T $DTS/t8010.dtsi $DTS/t8010-7.dtsi
+mk 0018-dts-t8010-aop-pmgr-min      $O $T $DTS/t8010-pmgr.dtsi
 
 # Gegenprobe: alle Patches der Reihe nach auf die Originale anwenden
 tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
@@ -54,7 +55,7 @@ for p in "$P"/*.patch; do
 done
 fail=0
 for f in drivers/spi/spi-apple-s5l.c drivers/pci/controller/pcie-apple-t8010.c drivers/gpio/gpio-apple-pmic.c \
-         drivers/gpio/Kconfig drivers/pci/controller/Makefile $DTS/t8010.dtsi $DTS/t8010-7.dtsi \
+         drivers/gpio/Kconfig drivers/pci/controller/Makefile $DTS/t8010.dtsi $DTS/t8010-7.dtsi $DTS/t8010-pmgr.dtsi \
          drivers/power/supply/apple-tigris.c drivers/tty/serdev/core.c drivers/tty/serial/Kconfig include/linux/serdev.h drivers/bluetooth/hci_bcm.c drivers/nvme/host/pci.c; do
     cmp -s "$tmp/$f" "$T/$f" && echo "OK $f" || { echo "ABWEICHUNG $f"; fail=1; }
 done

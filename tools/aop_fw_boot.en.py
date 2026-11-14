@@ -59,6 +59,15 @@ log("before: CPU {:#x}, window 08/10/18/20/28/38 = {}".format(
 if akf.r32(0x44) & 0x10 and os.environ.get("NEUSTART") != "1":
     sys.exit("AOP is already running – restarting freezes the iPhone. Reboot Nura first (or NEUSTART=1).")
 
+# Protect the AOP power domains (PMGR mini 0x2_1020_0000) against auto power-off: PS_MIN (bits 19:16) = 0xf.
+# Linux enables auto-PM at boot; the AOP then gates its bus (aop_busif) when idle and every
+# AP access to the mailbox freezes the iPhone. With the kernel DT apple,min-state = <15> this is only a safeguard.
+pmgr = Mem(0x210200000, 0x84000)
+for name, off in (("aop_cpu", 0x80048), ("aop_filter", 0x80050), ("aop_busif", 0x80058)):
+    alt = pmgr.r32(off)
+    pmgr.w32(off, (alt & ~0x000f0300) | (0xf << 16))
+    log(f"  PMGR {name}: {alt:#x} -> {pmgr.r32(off):#x}")
+
 # 1) Stop the CPU, discard old messages
 akf.w32(0x44, akf.r32(0x44) & ~0x10)
 Mem(AUTOBOOT).w32(0, 0)

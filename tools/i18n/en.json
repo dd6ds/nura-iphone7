@@ -1083,5 +1083,13 @@
  "# SPU_EP=48,37: nur diesen SPU-Endpunkten antworten (Standard: allen)": "# SPU_EP=48,37: only answer these SPU endpoints (default: all)",
  "spu_eps = {int(x, 0) for x in os.environ[\"SPU_EP\"].split(\",\")} if \"SPU_EP\" in os.environ else set(range(32, 64))": "spu_eps = {int(x, 0) for x in os.environ[\"SPU_EP\"].split(\",\")} if \"SPU_EP\" in os.environ else set(range(32, 64))",
  "if os.environ.get(\"AKF\", \"\").lower() == \"0x210800000\":      # AOP t8010 (Firmware-Tabelle 0x10a28c0)": "if os.environ.get(\"AKF\", \"\").lower() == \"0x210800000\":      # AOP t8010 (firmware table 0x10a28c0)",
- "NAMEN.update(dict(zip(range(32, 51), \"misc accel gyro compass pressure aggregate1 mca cma devmotion borealis profile prox aop-audio mux aop-button turtle mesa devmotion6 devmotion10\".split())))": "NAMEN.update(dict(zip(range(32, 51), \"misc accel gyro compass pressure aggregate1 mca cma devmotion borealis profile prox aop-audio mux aop-button turtle mesa devmotion6 devmotion10\".split())))"
+ "NAMEN.update(dict(zip(range(32, 51), \"misc accel gyro compass pressure aggregate1 mca cma devmotion borealis profile prox aop-audio mux aop-button turtle mesa devmotion6 devmotion10\".split())))": "NAMEN.update(dict(zip(range(32, 51), \"misc accel gyro compass pressure aggregate1 mca cma devmotion borealis profile prox aop-audio mux aop-button turtle mesa devmotion6 devmotion10\".split())))",
+ "# AOP-Strom-Domänen (PMGR-mini 0x2_1020_0000) gegen Auto-Abschaltung sichern: PS_MIN (Bit 19:16) = 0xf.": "# Protect the AOP power domains (PMGR mini 0x2_1020_0000) against auto power-off: PS_MIN (bits 19:16) = 0xf.",
+ "# Linux schaltet beim Start Auto-PM ein; dann gated der AOP im Leerlauf seinen Bus (aop_busif) und jeder": "# Linux enables auto-PM at boot; the AOP then gates its bus (aop_busif) when idle and every",
+ "# AP-Zugriff auf die Mailbox friert das iPhone ein. Ab Kernel-DT mit apple,min-state = <15> nur noch Absicherung.": "# AP access to the mailbox freezes the iPhone. With the kernel DT apple,min-state = <15> this is only a safeguard.",
+ "pmgr = Mem(0x210200000, 0x84000)": "pmgr = Mem(0x210200000, 0x84000)",
+ "for name, off in ((\"aop_cpu\", 0x80048), (\"aop_filter\", 0x80050), (\"aop_busif\", 0x80058)):": "for name, off in ((\"aop_cpu\", 0x80048), (\"aop_filter\", 0x80050), (\"aop_busif\", 0x80058)):",
+ "alt = pmgr.r32(off)": "alt = pmgr.r32(off)",
+ "pmgr.w32(off, (alt & ~0x000f0300) | (0xf << 16))": "pmgr.w32(off, (alt & ~0x000f0300) | (0xf << 16))",
+ "log(f\"  PMGR {name}: {alt:#x} -> {pmgr.r32(off):#x}\")": "log(f\"  PMGR {name}: {alt:#x} -> {pmgr.r32(off):#x}\")"
 }

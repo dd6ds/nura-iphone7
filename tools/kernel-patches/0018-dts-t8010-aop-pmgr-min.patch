@@ -1,0 +1,31 @@
+--- a/arch/arm64/boot/dts/apple/t8010-pmgr.dtsi
++++ b/arch/arm64/boot/dts/apple/t8010-pmgr.dtsi
+@@ -752,6 +752,9 @@
+ 		#power-domain-cells = <0>;
+ 		#reset-cells = <0>;
+ 		label = "aop_cpu";
++		/* Nura: Auto-PM darf den AOP-Bus nicht abschalten, sonst hängen AP-Zugriffe auf die AOP-Mailbox
++		 * den ganzen Bus auf (research/AUDIO-ANALYSE.md). */
++		apple,min-state = <15>;
+ 	};
+ 
+ 	ps_aop_filter: power-controller@80050 {
+@@ -760,6 +763,9 @@
+ 		#power-domain-cells = <0>;
+ 		#reset-cells = <0>;
+ 		label = "aop_filter";
++		/* Nura: Auto-PM darf den AOP-Bus nicht abschalten, sonst hängen AP-Zugriffe auf die AOP-Mailbox
++		 * den ganzen Bus auf (research/AUDIO-ANALYSE.md). */
++		apple,min-state = <15>;
+ 	};
+ 
+ 	ps_aop_busif: power-controller@80058 {
+@@ -768,5 +774,8 @@
+ 		#power-domain-cells = <0>;
+ 		#reset-cells = <0>;
+ 		label = "aop_busif";
++		/* Nura: Auto-PM darf den AOP-Bus nicht abschalten, sonst hängen AP-Zugriffe auf die AOP-Mailbox
++		 * den ganzen Bus auf (research/AUDIO-ANALYSE.md). */
++		apple,min-state = <15>;
+ 	};
+ };
