@@ -346,3 +346,8 @@ Gleiche Treiberfamilie wie die GPU (AppleA7IOP, AKF V2, RTKit 1827.140.2) → si
 - Nächste Schritte: (1) –;
   (2) Bedeutung/Werte der Konfigurations-Einträge klären (iBoot setzt sie; ggf. aus einem iOS-Speicherabzug
   oder dem iBoot-Code); (3) PC des hängenden AOP über Debug-/PC-Sample-Register ermitteln.
+- Suche unter Nura (tools/mem_suche.py) in allen 18 reservierten RAM-Bereichen (iBoot-Reservierungen, unsere
+  gfx-/aop-fw): **keine AOP-Firmware**, nur „t8010aop“ im ADT. PongoOS startet m1n1 direkt – der iBoot-Schritt,
+  der unter iOS die Coprozessor-Firmware lädt und die Konfigurations-Einträge füllt, läuft nie.
+- iOS-Weg am iPhone 7 nicht möglich (Aktivierungssperre, Apple-ID-Passwort unbekannt). Alternative: iPhone SE
+  (A9, iOS 15.8, Zugangsdaten bekannt) als Referenz für das Format der Einträge (tools/ios_jailbreak.sh).
