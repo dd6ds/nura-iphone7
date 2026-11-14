@@ -377,3 +377,12 @@ iBoot wurde lokal mit dem GID-Schlüssel des eigenen iPhone 7 entschlüsselt (ga
   Nullen im Bild sind also korrekt (LRSD = 0 heißt: kein Zustand wiederherstellen).
 - Unter Nura blieben bisher u. a. `_COS`/`RCOS` (0xffffffff), `GKTS`, `dArW` (0) ungefüllt.
   `tools/aop_fw_boot.py` füllt sie mit `TLV=1` (dArW -> IOP 0xe0000, letztes 128 KB im 1-MB-Fenster).
+- Test 2026-11-14 (Nura, `IOP_BASIS=0 TLV=1 TUNE=1`): TLV-Werte korrekt eingetragen, **weiterhin kein HELLO**.
+  - Die „AOP Global“-Tunables stehen nach dem Nura-Start **bereits** auf den iBoot-Werten (Hardware-Default
+    oder SecureROM) – daran liegt es nicht. Fenster 0 steht vor unserem Start auf SRAM 0x2_10e00000, Länge 0x1ff000.
+  - RAM-Abzug nach 2 s und nach 17 s Laufzeit: **identisch**. Sichtbar sind nur die Schreibzugriffe, die die
+    Firmware vor dem Einschalten der Caches bzw. mit Cache-Clean macht (Seitentabellen, Marker 0xcafe4b0b, der schon
+    in den allerersten Befehlen gesetzt wird). Der Stapel zeigt einen halb ausgeführten memcpy (SZSD) – das ist
+    vermutlich nur der noch nicht zurückgeschriebene Cache-Stand, kein echter Hänger.
+  - Folgerung: Aus dem DRAM lässt sich der Fortschritt nicht ablesen. Nächster Schritt wäre, die Firmware an
+    ausgewählten Stellen zu patchen (Cache-Clean + Marker), um zu sehen, wie weit sie kommt.
