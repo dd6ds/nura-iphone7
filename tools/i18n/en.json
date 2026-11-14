@@ -984,5 +984,7 @@
  "setze(\"GKTS\", bytes(zufall))                                  # Stack-Schutzwert, ein Byte 0": "setze(\"GKTS\", bytes(zufall))                                  # stack guard, one byte 0",
  "setze(\"GNRP\", os.urandom(32))                                 # Zufalls-Startwert": "setze(\"GNRP\", os.urandom(32))                                 # random seed",
  "setze(\"dArW\", int(os.environ.get(\"DARW\", \"0xe0000\"), 0))      # 128-KB-Puffer (Firmware-Default-Größe 0x20000)": "setze(\"dArW\", int(os.environ.get(\"DARW\", \"0xe0000\"), 0))      # 128 KB buffer (firmware default size 0x20000)",
- "# TUNE=1: Tunables „AOP Global“ anwenden, wie iBoot 7459.140.15 für t8010 (Register, Maske, Wert)": "# TUNE=1: apply the \"AOP Global\" tunables like iBoot 7459.140.15 for t8010 (register, mask, value)"
+ "# TUNE=1: Tunables „AOP Global“ anwenden, wie iBoot 7459.140.15 für t8010 (Register, Maske, Wert)": "# TUNE=1: apply the \"AOP Global\" tunables like iBoot 7459.140.15 for t8010 (register, mask, value)",
+ "\"\"\"mem_dump.py <phys-adresse> <länge> <datei> – physischen Speicher per /dev/mem in eine Datei schreiben (root).": "\"\"\"mem_dump.py <phys-address> <length> <file> – write physical memory to a file via /dev/mem (root).",
+ "Liest mit ausgerichteten 32-Bit-Zugriffen (geht auch für no-map-Bereiche/Gerätespeicher).\"\"\"": "Reads with aligned 32-bit accesses (also works for no-map ranges/device memory).\"\"\""
 }
