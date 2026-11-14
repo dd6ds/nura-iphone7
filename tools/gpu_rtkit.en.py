@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """gpu_rtkit.en.py [seconds] [--start] – EXPERIMENT: RTKit handshake with the running GPU coprocessor (root).
+Also for the AOP: AKF=0x210800000 (HELLO_ACK=12 if aop_fw_boot.en.py has already picked up the HELLO).
 --start: after the endpoint map start all endpoints via STARTEP (flag via STARTFLAG, default 2).
 --puffer: serve the endpoints' buffer requests from the reserved RAM (IOP 0x90000..0xfffff).
 First: gpu_fw_boot.en.py <fw> 0 --laufen --neu  (starts the firmware, leaves its HELLO in the mailbox).
@@ -10,7 +11,7 @@ EPMAP 8 (base bit 34:32, bitmap 31:0, LAST bit 51) -> reply 8 with base + LAST o
 Without options it starts no endpoints and allocates no memory."""
 import ctypes, mmap, os, sys, time
 
-AKF = 0x201D20000
+AKF = int(os.environ.get("AKF", "0x201D20000"), 0)   # AOP: AKF=0x210800000
 dauer = float(sys.argv[1]) if len(sys.argv) > 1 else 5
 NAMEN = {0: "management", 1: "crashlog", 2: "syslog", 3: "debug", 4: "ioreport", 8: "oslog"}
 TYPEN = {1: "HELLO", 2: "HELLO_ACK", 5: "STARTEP", 6: "IOP_PWR", 7: "IOP_PWR_ACK", 8: "EPMAP", 0xb: "AP_PWR"}
@@ -50,14 +51,21 @@ def verwaltung(typ, daten):
 
 
 if not r32(0x44) & 0x10:
-    sys.exit("Coprocessor not running – first gpu_fw_boot.en.py <fw> 0 --laufen --neu")
+    sys.exit("coprocessor not running – run gpu_fw_boot.en.py <fw> 0 --laufen --neu first (AOP: aop_fw_boot.en.py)")
 endpunkte = []
-puffer_frei = 0x90000                                # next free IOP address for buffers
+puffer_frei = int(os.environ.get("PUFFER_AB", "0x90000"), 0)   # next free IOP address for buffers
+puffer_ende = int(os.environ.get("PUFFER_BIS", "0x100000"), 0)
 t0 = time.time()
 # After the handshake (0.5 s quiet) send power commands; IOP_PWR_ACK only arrives after the crashlog buffer:
 # IOP_PWR_STATE (6) = 0x20 (on), then AP_PWR_STATE (0xb) = 0x20.
 nachschub = [(6, 0x20), (0xb, 0x20)]
 ack_zeit, letzte_nachricht = None, time.time()
+# HELLO_ACK=<version>: the HELLO was already picked up by another script -> acknowledge immediately
+if "HELLO_ACK" in os.environ:
+    v = int(os.environ["HELLO_ACK"], 0)
+    log(f"  HELLO already picked up – sending HELLO_ACK version {v}")
+    verwaltung(2, (v << 16) | v)
+    ack_zeit = time.time()
 while time.time() - t0 < dauer:
     msg = holen()
     if msg is None:
@@ -79,7 +87,7 @@ while time.time() - t0 < dauer:
         etyp, seiten, adr = (msg >> 52) & 0xf, (msg >> 44) & 0xff, msg & ((1 << 42) - 1)
         if etyp == 1 and adr == 0 and "--puffer" in sys.argv:
             groesse = seiten * 0x4000                      # 16 KB pages to be safe
-            if puffer_frei + groesse > 0x100000:
+            if puffer_frei + groesse > puffer_ende:
                 log(f"  Buffer request ({seiten} pages) no longer fits into the reserved RAM")
                 continue
             log(f"  Buffer request: {seiten} pages -> IOP address {puffer_frei:#x} ({groesse:#x} bytes)")
@@ -100,7 +108,7 @@ while time.time() - t0 < dauer:
         log(f"  EPMAP base {basis}: endpoints {neu}{' (last)' if letzte else ''}")
         verwaltung(8, (basis << 32) | ((1 << 51) if letzte else 1))
         if letzte:
-            log("Endpoints of the GPU firmware: " + ", ".join(f"{e} ({NAMEN.get(e, '?')})" for e in endpunkte))
+            log("Firmware endpoints: " + ", ".join(f"{e} ({NAMEN.get(e, '?')})" for e in endpunkte))
             if "--start" in sys.argv:
                 # STARTEP (5): endpoint in bit 47:32, low word 1 or 2 (firmware handler IOP 0x2a29c)
                 flag = int(os.environ.get("STARTFLAG", "2"))

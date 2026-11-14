@@ -1022,5 +1022,14 @@
  "lesen(2)": "lesen(2)",
  "ein = r32(0x4008)": "ein = r32(0x4008)",
  "if ein & 0xc0000 or ein & (1 << 16):": "if ein & 0xc0000 or ein & (1 << 16):",
- "lesen(3)": "lesen(3)"
+ "lesen(3)": "lesen(3)",
+ "Auch für den AOP: AKF=0x210800000 (HELLO_ACK=12, wenn aop_fw_boot.py das HELLO schon abgeholt hat).": "Also for the AOP: AKF=0x210800000 (HELLO_ACK=12 if aop_fw_boot.py has already picked up the HELLO).",
+ "AKF = int(os.environ.get(\"AKF\", \"0x201D20000\"), 0)   # AOP: AKF=0x210800000": "AKF = int(os.environ.get(\"AKF\", \"0x201D20000\"), 0)   # AOP: AKF=0x210800000",
+ "puffer_frei = int(os.environ.get(\"PUFFER_AB\", \"0x90000\"), 0)   # nächste freie IOP-Adresse für Puffer": "puffer_frei = int(os.environ.get(\"PUFFER_AB\", \"0x90000\"), 0)   # next free IOP address for buffers",
+ "puffer_ende = int(os.environ.get(\"PUFFER_BIS\", \"0x100000\"), 0)": "puffer_ende = int(os.environ.get(\"PUFFER_BIS\", \"0x100000\"), 0)",
+ "if puffer_frei + groesse > puffer_ende:": "if puffer_frei + groesse > puffer_ende:",
+ "# HELLO_ACK=<version>: das HELLO wurde schon von einem anderen Skript abgeholt -> sofort bestätigen": "# HELLO_ACK=<version>: the HELLO was already picked up by another script -> acknowledge immediately",
+ "log(f\"  HELLO schon abgeholt – sende HELLO_ACK Version {v}\")": "log(f\"  HELLO already picked up – sending HELLO_ACK version {v}\")",
+ "sys.exit(\"Coprozessor läuft nicht – erst gpu_fw_boot.py <fw> 0 --laufen --neu (AOP: aop_fw_boot.py)\")": "sys.exit(\"coprocessor not running – run gpu_fw_boot.py <fw> 0 --laufen --neu first (AOP: aop_fw_boot.py)\")",
+ "log(\"Endpunkte der Firmware: \" + \", \".join(f\"{e} ({NAMEN.get(e, '?')})\" for e in endpunkte))": "log(\"Firmware endpoints: \" + \", \".join(f\"{e} ({NAMEN.get(e, '?')})\" for e in endpunkte))"
 }

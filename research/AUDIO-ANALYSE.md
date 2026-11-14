@@ -406,3 +406,14 @@ iBoot wurde lokal mit dem GID-Schlüssel des eigenen iPhone 7 entschlüsselt (ga
   (zweimal reproduziert). `aop_fw_boot.py` verweigert das jetzt, solange der AOP läuft (`NEUSTART=1` erzwingt).
   Jeder Versuch braucht daher einen frischen Nura-Start. Neues Hilfsskript `tools/aop_mbox.py`
   (status/lesen/wecken, entnimmt nur bei gültigem Zustand).
+
+### AOP: HELLO und Handshake (2026-11-14, frischer Nura-Start, ein Versuch)
+`IOP_BASIS=0 TLV=1 NOCACHE=1 aop_fw_boot.py … --laufen` -> nach 17 ms **HELLO 0x0010_0000_000c_000c** (RTKit v12).
+Danach `AKF=0x210800000 HELLO_ACK=12 gpu_rtkit.py 6`:
+- EPMAP: Endpunkte **0, 1 (crashlog), 2 (syslog), 4 (ioreport), 32–50** (= AOPEndpoint1..19 unter iOS:
+  32 SPU-App, 33 accel, … Audio liegt in diesem Bereich).
+- IOP_PWR 0x20 und AP_PWR 0x20 gesendet; Eingang/Ausgang danach 0x25501/0x23301 (Zähler, keine Fehlerbits).
+Nötig waren also: Firmware-Teile im 1-MB-Fenster ab IOP 0, Auto-Boot-Register, und die TLV-Werte
+p0CE (ext-Adresse), DICE ≠ 0 (ECID) – dazu chip-id/-rev, Zufallswerte, dArW. NOCACHE ist nur fürs Debugging.
+Nächste Schritte: Endpunkte starten (STARTEP), Puffer-Anforderungen bedienen (Fenster > 1 MB nötig: freier Platz
+im 1-MB-Bereich ist nur 0xdf000..0xe0000), dann Endpunkte 32+ (SPU-Protokoll) für Audio untersuchen.
