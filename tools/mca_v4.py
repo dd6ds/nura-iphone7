@@ -44,10 +44,13 @@ def warte(i, maske):
     print(f"  Zeitüberschreitung: Reg {i:#x} = {rd(i):#x}"); return False
 
 if CMD == "stop":
-    wr(0x18, rd(0x18) & ~1); wr(4, rd(4) & ~2); zeige(m); sys.exit()
+    wr(0x18, rd(0x18) & ~1); wr(4, rd(4) & ~3); zeige(m); sys.exit()
 
 if CMD == "start":
-    wr(0x18, 0x133); wr(4, rd(4) | 2)
+    # iOS lässt Bit 0 von Reg 4 aus (mca1 ist dort Takt-Slave, Bittakt kommt vom Codec). Ohne Codec-Takt
+    # zieht der MCA keine Daten aus dem Shim – mit Bit 0 (Sync-/Bittakt-Erzeugung) läuft der DMA (MASTER=0: aus).
+    master = int(os.environ.get("MASTER", "1"))
+    wr(0x18, 0x133); wr(4, rd(4) | 2 | master)
     time.sleep(0.05); zeige(m); sys.exit()
 
 # init

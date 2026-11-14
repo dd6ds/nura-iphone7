@@ -11,6 +11,7 @@ The buffers live in the SIO RAM MB (0x8_4070_0000) from 0x90000, page number = p
   sio_ctl.en.py config [KANAL [XFER TIMEOUT FIFO TRIGGER LIMIT CFG5 RAHMEN CFG6]]   set up a shim (opcode 5)
   sio_ctl.en.py start [KANAL]   hand over a sine buffer via DMA (opcode 6; LAENGE, AMPLITUDE, RICHTUNG, HANDLE)
   sio_ctl.en.py hoeren [SEK]    only listen to messages from the SIO
+  sio_ctl.en.py ton [SEK]       continuous tone (FREQ, AMPLITUDE, KANAL): two buffers alternating, completion opcode 0x68
   sio_ctl.en.py send HEX    send one raw message and print replies for 1 s"""
 import ctypes, mmap, os, sys, time
 
@@ -126,6 +127,46 @@ elif cmd == "start":
     ctypes.c_uint64.from_address(rva + seg).value = RAM + PUF
     ctypes.c_uint32.from_address(rva + seg + 8).value = laenge
     senden(nachricht(kanal, 2, 6, 0, handle)); holen(2.0); holen(3.0); panic_text()
+elif cmd == "ton":
+    # Continuous tone: write a sine buffer (whole periods, multiple of 64 bytes) once, keep two handles (tag 2/3)
+    # in flight alternately; every completion (opcode 0x68, data = length) resubmits its buffer.
+    import math
+    dauer = float(sys.argv[2]) if len(sys.argv) > 2 else 5
+    kanal = int(os.environ.get("KANAL", "0x2a"), 0)
+    freq = int(os.environ.get("FREQ", "1000"), 0)
+    amp = int(os.environ.get("AMPLITUDE", "3000"), 0)
+    # One 32-bit word per slot (measured: 8 bytes per frame with 2 TX slots); sample in both halves.
+    perioden = max(1, 0x10000 // (48000 // freq * 8))
+    laenge = perioden * (48000 // freq) * 8 // 64 * 64
+    PUF = 0xc0000
+    for i in range(laenge // 8):
+        s = int(amp * math.sin(2 * math.pi * freq * i / 48000)) & 0xffff
+        ctypes.c_uint32.from_address(rva + PUF + 8 * i).value = s | s << 16
+        ctypes.c_uint32.from_address(rva + PUF + 8 * i + 4).value = s | s << 16
+    handles = {2: 16, 3: 32}
+    for tag, h in handles.items():
+        nullen(SEG + 12 * h, 7 * 12)
+        ctypes.c_uint32.from_address(rva + SEG + 12 * h + 0x3c).value = 1
+        ctypes.c_uint64.from_address(rva + SEG + 12 * (h + 6)).value = RAM + PUF
+        ctypes.c_uint32.from_address(rva + SEG + 12 * (h + 6) + 8).value = laenge
+        senden(nachricht(kanal, tag, 6, 0, h))
+    fertig, t0 = 0, time.time()
+    while time.time() - t0 < dauer:
+        st = r32(0x4020)
+        if st & 0xc0000:
+            sys.exit(f"Outbox error {st:#x}")
+        if st & (1 << 17):
+            time.sleep(0.002); continue
+        m = ctypes.c_uint64.from_address(ava + 0x4038).value
+        op, tag = m >> 16 & 0xff, m >> 8 & 0xff
+        if op == 0x68 and tag in handles and time.time() - t0 < dauer - 0.5:
+            fertig += 1
+            senden(nachricht(kanal, tag, 6, 0, handles[tag]))
+        elif op not in (0x65, 0x68):
+            print("  <-", zeige(m))
+            if op == 0x6a: panic_text(); break
+    print(f"{fertig} buffers of {laenge:#x} bytes done in {time.time() - t0:.1f} s "
+          f"(expected {dauer * 48000 * 8 / laenge:.0f})")
 elif cmd == "hoeren":
     holen(float(sys.argv[2]) if len(sys.argv) > 2 else 5)
 elif cmd == "send":

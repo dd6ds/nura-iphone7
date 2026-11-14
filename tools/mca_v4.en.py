@@ -44,10 +44,13 @@ def warte(i, maske):
     print(f"  Timeout: reg {i:#x} = {rd(i):#x}"); return False
 
 if CMD == "stop":
-    wr(0x18, rd(0x18) & ~1); wr(4, rd(4) & ~2); zeige(m); sys.exit()
+    wr(0x18, rd(0x18) & ~1); wr(4, rd(4) & ~3); zeige(m); sys.exit()
 
 if CMD == "start":
-    wr(0x18, 0x133); wr(4, rd(4) | 2)
+    # iOS leaves bit 0 of reg 4 off (mca1 is a clock slave there, the bit clock comes from the codec). Without codec clock
+    # the MCA pulls no data from the shim – with bit 0 (sync/bit clock generation) the DMA runs (MASTER=0: off).
+    master = int(os.environ.get("MASTER", "1"))
+    wr(0x18, 0x133); wr(4, rd(4) | 2 | master)
     time.sleep(0.05); zeige(m); sys.exit()
 
 # init

@@ -689,3 +689,27 @@ im 1-MB-Bereich ist nur 0xdf000..0xe0000), dann Endpunkte 32+ (SPU-Protokoll) f�
 - Offen: warum der Shim keine Daten in den FIFO schiebt (DMA-Anforderung MCA → Shim, Segment-/Adressformat,
   oder ein weiterer Opcode). Nächste Ansätze: Shim-Zustandsausgabe (0x224c, „Shim states“) auslösen,
   op-6-Pfad in der SIO-Firmware lesen.
+
+### DMA läuft: mca1 zieht Daten, SIO meldet Fertig – Lautsprecher bleibt still (2026-11-14, 18:15)
+- SIO-Firmware, Opcode 6 (0x3664): ACK, Puffer-Deskriptor aus Segmentspeicher-Eintrag H; Kopf +0x3c = Anzahl
+  Segmente, Segmente ab +0x48 je {u64 Adresse, u32 Länge} (bestätigt). **Fertigmeldung = Opcode 0x68**,
+  Parameter 0x80, Daten = übertragene Länge.
+- Shim-Objekte (0x9080): Typ 0 SPI (0x0a080000), 1 UART (0x0a0b0000), 2/4 MCA/MCA-Slave (0x0a06c000),
+  Register = Basis + Index·0x4000; MCA1 hat Shim-Index 14 → **Shim-Register im MCA-Fenster selbst:
+  0x2_0a0a_5000 (TX: XFER, TIMEOUT, FIFO, TRIGGER, LIMIT, Freigabe, +0x18 Füllstand, +0x1c frei),
+  0x2_0a0a_5800 (RX), Datenport TX 0x2_0a0a_6000, RX 0x2_0a0a_7000.** Lesen dieser Adressen ist harmlos.
+  (Achtung: Die SIO hält ihre Variablen im D-Cache – der RAM-Inhalt ist vom AP aus nicht aktuell.)
+- Beobachtung: Der Shim-FIFO war gefüllt (SIO hatte geliefert), der MCA nahm aber nichts ab. Schreiben auf den
+  Datenport füllt den FIFO weiter (Füllstand +0x18 steigt) – also ist der MCA der Engpass.
+- **Ursache: mca1 ist unter iOS Takt-Slave** (Bit 0 von Reg 4 bleibt aus, weil `audio-data reg` Byte 0 Bit 0 = 0;
+  Bittakt/Rahmen kommen vom Codec). Ohne Codec-Takt läuft nichts. **Mit Reg 4 |= 1 erzeugt mca1 den Takt selbst**,
+  der FIFO leert sich und die SIO meldet Puffer für Puffer fertig. `mca_v4.py start` setzt das jetzt (MASTER=1).
+- `sio_ctl.py ton SEK`: zwei Puffer (Tag 2/3) im Wechsel, Neuaufgabe bei jeder Fertigmeldung. Gemessen ca.
+  167 Puffer à 0xffc0 Byte in 25 s ≈ 437 KB/s (bei 8 Byte/Rahmen ≈ 55 kHz – genaue Rahmenrate noch offen).
+- Verstärker (`tools/cs35l26_an.py`): Taktquelle SCLK (CLK_CTL1 = 0x09), CLK_CTL2 = 0x13 (12 MHz/48 kHz),
+  RX-Slot 0, 16 Bit, PDN_ALL/BST/AMP aus, Mute aus → PWRCTL 00 18 25, **keine Fehlerbits, PLL_STATUS 0**.
+  Zwei Hörtests (Amplitude 3000 und 12000, 20 s): **nichts zu hören**.
+- Offene Punkte: (1) Ob die Daten überhaupt beim Verstärker ankommen – evtl. läuft der Lautsprecherweg über
+  Maggie (virtual-mca1b, SIO-Kanal 0x52) oder pin2 ist nicht der Verstärker-Port. (2) SP-Format des
+  Verstärkers (SP_FMT_CTL1-3 = 0, TDM-Slotlage) aus dem iOS-Treiber AppleCS35L26Amp nachlesen. (3) Fehlerbits
+  mit INT_MASK = 0 prüfen (Takt am Verstärker nachweisen). (4) Echte Rahmenrate von mca1 im Master-Betrieb.

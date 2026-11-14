@@ -11,6 +11,7 @@ Die Puffer liegen im SIO-RAM-MB (0x8_4070_0000) ab 0x90000, Seitennummer = physi
   sio_ctl.py config [KANAL [XFER TIMEOUT FIFO TRIGGER LIMIT CFG5 RAHMEN CFG6]]   Shim einrichten (Opcode 5)
   sio_ctl.py start [KANAL]   Sinus-Puffer per DMA übergeben (Opcode 6; LAENGE, AMPLITUDE, RICHTUNG, HANDLE)
   sio_ctl.py hoeren [SEK]    nur Nachrichten der SIO mitlesen
+  sio_ctl.py ton [SEK]       Dauerton (FREQ, AMPLITUDE, KANAL): zwei Puffer im Wechsel, Fertigmeldung Opcode 0x68
   sio_ctl.py send HEX    eine Rohnachricht senden und Antworten 1 s lang ausgeben"""
 import ctypes, mmap, os, sys, time
 
@@ -126,6 +127,46 @@ elif cmd == "start":
     ctypes.c_uint64.from_address(rva + seg).value = RAM + PUF
     ctypes.c_uint32.from_address(rva + seg + 8).value = laenge
     senden(nachricht(kanal, 2, 6, 0, handle)); holen(2.0); holen(3.0); panic_text()
+elif cmd == "ton":
+    # Dauerton: Sinus-Puffer (ganze Perioden, 64-Byte-Vielfaches) einmal schreiben, zwei Handles (Tag 2/3)
+    # abwechselnd in Umlauf halten; jede Fertigmeldung (Opcode 0x68, Daten = Länge) gibt ihren Puffer neu auf.
+    import math
+    dauer = float(sys.argv[2]) if len(sys.argv) > 2 else 5
+    kanal = int(os.environ.get("KANAL", "0x2a"), 0)
+    freq = int(os.environ.get("FREQ", "1000"), 0)
+    amp = int(os.environ.get("AMPLITUDE", "3000"), 0)
+    # Ein 32-Bit-Wort pro Slot (gemessen: 8 Byte je Rahmen bei 2 TX-Slots); Probe in beiden Hälften.
+    perioden = max(1, 0x10000 // (48000 // freq * 8))
+    laenge = perioden * (48000 // freq) * 8 // 64 * 64
+    PUF = 0xc0000
+    for i in range(laenge // 8):
+        s = int(amp * math.sin(2 * math.pi * freq * i / 48000)) & 0xffff
+        ctypes.c_uint32.from_address(rva + PUF + 8 * i).value = s | s << 16
+        ctypes.c_uint32.from_address(rva + PUF + 8 * i + 4).value = s | s << 16
+    handles = {2: 16, 3: 32}
+    for tag, h in handles.items():
+        nullen(SEG + 12 * h, 7 * 12)
+        ctypes.c_uint32.from_address(rva + SEG + 12 * h + 0x3c).value = 1
+        ctypes.c_uint64.from_address(rva + SEG + 12 * (h + 6)).value = RAM + PUF
+        ctypes.c_uint32.from_address(rva + SEG + 12 * (h + 6) + 8).value = laenge
+        senden(nachricht(kanal, tag, 6, 0, h))
+    fertig, t0 = 0, time.time()
+    while time.time() - t0 < dauer:
+        st = r32(0x4020)
+        if st & 0xc0000:
+            sys.exit(f"Ausgang-Fehler {st:#x}")
+        if st & (1 << 17):
+            time.sleep(0.002); continue
+        m = ctypes.c_uint64.from_address(ava + 0x4038).value
+        op, tag = m >> 16 & 0xff, m >> 8 & 0xff
+        if op == 0x68 and tag in handles and time.time() - t0 < dauer - 0.5:
+            fertig += 1
+            senden(nachricht(kanal, tag, 6, 0, handles[tag]))
+        elif op not in (0x65, 0x68):
+            print("  <-", zeige(m))
+            if op == 0x6a: panic_text(); break
+    print(f"{fertig} Puffer à {laenge:#x} Byte fertig in {time.time() - t0:.1f} s "
+          f"(erwartet {dauer * 48000 * 8 / laenge:.0f})")
 elif cmd == "hoeren":
     holen(float(sys.argv[2]) if len(sys.argv) > 2 else 5)
 elif cmd == "send":
