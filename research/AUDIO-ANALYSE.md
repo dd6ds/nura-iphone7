@@ -598,3 +598,14 @@ im 1-MB-Bereich ist nur 0xdf000..0xe0000), dann Endpunkte 32+ (SPU-Protokoll) f�
 - Nächster Schritt: Testton – mca1 (PMGR 0x80180, NCO1, ClkCon 0x20a002004) als TDM-Master, Route aud1 -> pin2,
   FIFO per PIO füllen, Verstärker nach iOS-Folge einschalten (SP-Format/Slot aus `speaker-config`, rx_slot 0).
   Offen: ob die Daten direkt am Verstärker ankommen oder über Maggie (FPGA-Router) laufen.
+
+### Testton über mca1: Suche nach dem FIFO-Datenregister (2026-11-14, 18 Uhr)
+- AppleAE2MCA schreibt nur Register 2–0x12, 0x18–0x1b und 0x20–0x23 (TX-FIFO-Block ab 0x18, `txfifocfg` = 0x19;
+  RX-FIFO-Block ab 0x20, `rxfifocfg` = 0x21). Die Audiodaten schiebt ausschließlich die **SIO-DMA** (Kanäle laut
+  ADT `dma-channels`, z. B. mca1 TX 0x2a); ein Datenregister für PIO kommt im iOS-Treiber nicht vor.
+- Ruhewerte mca0/mca2: 0x18 = 8, 0x19 = 0xf0000, 0x1a/0x1b = 0xffffffff; 0x20 = 8, 0x21 = 0xf0000,
+  0x22/0x23 = 0xffffffff, 0x25 = 7. Schreiben auf 0x1c–0x1f ändert am TX-Status nichts (kein Datenport).
+- **Achtung:** Lesen des MCA-Fensters ab Versatz 0x100 (mca0, 0x2_0a0a0100 ff.) **friert das System ein**
+  (Bus hängt). Nur Register 0x00–0xff anfassen.
+- Folgerung: Ein Testton braucht entweder den FIFO-Datenport (noch unbekannt) oder die SIO-DMA (eigener
+  RTKit-Coprozessor, wie AOP/GPU anzusteuern).
