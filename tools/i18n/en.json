@@ -1258,5 +1258,9 @@
  "sw(5 + N, 0x0a0a0a)                 # audN <- pin2 (Ziel audN = Index 5+N)": "sw(5 + N, 0x0a0a0a)                 # audN <- pin2 (target audN = index 5+N)",
  "sw(2 + N, 0x181818)             # früherer Fehler dieses Skripts: pin(2+N) <- pin2 wieder freigeben": "sw(2 + N, 0x181818)             # earlier bug of this script: release pin(2+N) <- pin2 again",
  "slots = int(os.environ.get(\"SLOTS\", \"2\"), 0)          # Wörter je Rahmen = Bits in der MCA-TX-Slotmaske": "slots = int(os.environ.get(\"SLOTS\", \"2\"), 0)          # words per frame = bits in the MCA TX slot mask",
- "if \"MASKE\" in os.environ:          # INT_MASK 0x70-0x73 (1 = gesperrt); MASKE=0 meldet Taktfehler": "if \"MASKE\" in os.environ:          # INT_MASK 0x70-0x73 (1 = masked); MASKE=0 reports clock errors"
+ "if \"MASKE\" in os.environ:          # INT_MASK 0x70-0x73 (1 = gesperrt); MASKE=0 meldet Taktfehler": "if \"MASKE\" in os.environ:          # INT_MASK 0x70-0x73 (1 = masked); MASKE=0 reports clock errors",
+ "# KOPIE_LEN: nur den Anfang des Fensters beschreiben (Rest unangetastet), z. B. 0x300000, wenn im obersten MB": "# KOPIE_LEN: only write the start of the window (leave the rest untouched), e.g. 0x300000 if the top MB holds",
+ "# die SIO-Firmware liegt (tools/sio_boot.py). Das Fenster selbst bleibt RAM_LEN groß.": "# the SIO firmware (tools/sio_boot.py). The window itself stays RAM_LEN large.",
+ "# nächste freie IOP-Adresse für Puffer; beim AOP ab 0x100000 – darunter liegt die Firmware (0x90000 überschreibt": "# next free IOP address for buffers; for the AOP from 0x100000 – below that lies the firmware (0x90000 overwrites",
+ "# sie: syslog bleibt leer, die SPU-Dienste melden sich nie)": "# it: syslog stays empty, the SPU services never report)"
 }

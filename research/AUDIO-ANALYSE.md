@@ -733,3 +733,21 @@ im 1-MB-Bereich ist nur 0xdf000..0xe0000), dann Endpunkte 32+ (SPU-Protokoll) f�
 - Schluss: Der Weg mca1 → pin2 erreicht den Verstärker so nicht, oder der Verstärker braucht MCLK (AOP `mckE`)
   bzw. den AOP-/Maggie-Pfad. Nächste Kandidaten: AOP starten und `mckE` senden (Taktquelle MCLK),
   AOP-I2S-Schalter (`aop-i2s-switch`), Maggie-Pfad (virtual-mca1b, SIO-Kanal 0x52).
+
+### AOP zusammen mit SIO, mckE-Versuch, Hörtest mit MCLK (2026-11-14, 19 Uhr)
+- `aop_fw_boot.py`: neu `KOPIE_LEN` – nur den Anfang des 4-MB-Fensters beschreiben (z. B. 0x300000), damit das
+  oberste MB (SIO-Firmware) unangetastet bleibt; das Fenster selbst bleibt 4 MB.
+- Falle: `gpu_rtkit.py` vergab Puffer standardmäßig ab IOP 0x90000 – beim AOP liegt dort noch Firmware. Folge:
+  crashlog/ioreport/syslog-Puffer überschreiben sie, syslog bleibt leer, kein SPU-Dienst meldet sich.
+  Für den AOP jetzt Standard 0x100000 (wie in den früheren erfolgreichen Läufen).
+- Mit richtigen Puffern starten alle Dienste (Reihenfolge 48, 41, 46, 39, 38, 33, 37, 32, 44, …), alle melden
+  0x85 nach 3,5 s – **und das iPhone friert direkt nach aop-audio (44) ein**, obwohl PS_MIN für aop_cpu/filter/
+  busif = 0xf ist (DT). Das frühere Einfrieren war also nicht nur das Bus-Gating.
+- Mit `SPU_EP=48,41,46,39,38,33,37,32` (aop-audio und Folgende nicht bedient) bleibt das System stabil; ep 32
+  (SPUApp, Puffer IOP 0x258000, Ringe +0/+0x4000) nimmt setProperty 0xd0 an, antwortet aber mit Status
+  **0xe00002c2** (kIOReturnBadArgument) – vermutlich, weil die Dienstkette nicht vollständig gestartet ist.
+- Ersatzweise MCLK-Register direkt gesetzt: 0x2_10c02000 = 0x48 (bleibt stehen). Die Stromdomäne, die der
+  AOP-Dienst mca dabei zusätzlich einschaltet (0x15), ist noch nicht zugeordnet.
+- Hörtest 4 (Ton in allen vier Slots, Verstärker 10 s mit Taktquelle MCLK, 10 s mit SCLK): **still**.
+- Stand: DMA → mca1 läuft, Verstärker lässt sich schalten, aber kein Ton. Offen bleibt, ob mca1/pin2 den
+  Verstärker überhaupt erreicht (AOP-I2S-Schalter, Maggie) und ob der MCLK wirklich am Verstärker ankommt.

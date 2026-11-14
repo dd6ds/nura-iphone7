@@ -63,7 +63,10 @@ def verwaltung(typ, daten):
 if not r32(0x44) & 0x10:
     sys.exit("Coprozessor läuft nicht – erst gpu_fw_boot.py <fw> 0 --laufen --neu (AOP: aop_fw_boot.py)")
 endpunkte = []
-puffer_frei = int(os.environ.get("PUFFER_AB", "0x90000"), 0)   # nächste freie IOP-Adresse für Puffer
+# nächste freie IOP-Adresse für Puffer; beim AOP ab 0x100000 – darunter liegt die Firmware (0x90000 überschreibt
+# sie: syslog bleibt leer, die SPU-Dienste melden sich nie)
+_aop = os.environ.get("AKF", "").lower() == "0x210800000"
+puffer_frei = int(os.environ.get("PUFFER_AB", "0x100000" if _aop else "0x90000"), 0)
 puffer_ende = int(os.environ.get("PUFFER_BIS", "0x100000"), 0)
 # RAM_BASIS=<phys>: physische Adresse von IOP 0 (AOP: 0x840400000) -> Puffer lesbar (z. B. syslog-Text)
 ram_basis = int(os.environ["RAM_BASIS"], 0) if "RAM_BASIS" in os.environ else None

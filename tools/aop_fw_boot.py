@@ -127,7 +127,10 @@ if os.environ.get("TLV") == "1":
     if "OTTR" in os.environ:
         setze("OTTR", int(os.environ["OTTR"], 0))
 bild[EXT_OFF:EXT_OFF + len(ext)] = ext
-daten = struct.unpack(f"<{RAM_LEN // 4}I", bytes(bild))
+# KOPIE_LEN: nur den Anfang des Fensters beschreiben (Rest unangetastet), z. B. 0x300000, wenn im obersten MB
+# die SIO-Firmware liegt (tools/sio_boot.py). Das Fenster selbst bleibt RAM_LEN groß.
+KOPIE_LEN = int(os.environ.get("KOPIE_LEN", hex(RAM_LEN)), 0)
+daten = struct.unpack(f"<{KOPIE_LEN // 4}I", bytes(bild[:KOPIE_LEN]))
 for i, w in enumerate(daten):
     words[i] = w
 ok = all(words[i] == daten[i] for i in range(0, len(daten), 997))
@@ -193,7 +196,7 @@ try:
             log(f"  {time.time() - t0:6.3f}s Nachricht {n}: {msg:#018x}")
         time.sleep(0.002)
 finally:
-    gesehen = sum(1 for i in range(0, RAM_LEN // 4, 7) if words[i] != daten[i])
+    gesehen = sum(1 for i in range(0, KOPIE_LEN // 4, 7) if words[i] != daten[i])
     log(f"nach {time.time() - t0:.1f}s: {n} Nachricht(en), RAM-Stichprobe verändert: {gesehen} Wörter, "
         f"CPU {akf.r32(0x44):#x}, IDLE {akf.r32(0x4040):#x}")
     if "--laufen" not in sys.argv:
