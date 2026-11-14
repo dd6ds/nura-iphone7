@@ -494,3 +494,15 @@ im 1-MB-Bereich ist nur 0xdf000..0xe0000), dann Endpunkte 32+ (SPU-Protokoll) f�
   („enableMClk(%d), aopCnt %d, apCnt %d“, „MUX SETUP, ap = %u, aop = %u“) und spricht per UART mit Maggie
   („MUX UART PLAY/SYS“). Nächste Spur: AP-Anforderung an den mux-Dienst (MCLK/Mux für den AP) senden.
 - libgpiod (gpioget/gpioset) fehlte im Systemabbild – jetzt in EXTRA_PKGS.
+
+### Weg 1 („mux“/MCLK über den AOP) – Zwischenstand 2026-11-14 abends
+- AOP `Button.cpp` 0x100caf4 = enableMClk(this, enable, isAP): Referenzzähler aopCnt (+0x6a4) / apCnt (+0x6a8);
+  beim ersten Einschalten Service-Kommando 0x20 an [this+0x5d4] und **0x48 nach 0x2_10c02000** (aus: 0x08).
+  enableMux (0x100c9c0) analog. Aufrufer: Button-Zustandsautomat (0x100e104 ff., Ereignisse 0x20/0x1e),
+  Maggie-Dienst (Bitstream laden, 0x1010c58/ca0), 0x101e99c/ea0c.
+- iOS-Kernel `AppleMaggieArcAudio::_enableMCLK` (0xfffffff0064ea1e0) schreibt selbst nichts, sondern ruft eine
+  Plattformfunktion eines anderen Dienstes ([this+0x1d8]->vtbl+0x80) – laut ADT SPUApp „mckE“, also wieder genau
+  dieser AOP-Pfad. `_enableMaggie` -> [this+0x1e0] („magE“), `_updateArcIOState` -> [this+0x1f8].
+- Folgerung: Den MCLK-Teil haben wir mit 0x48 @ 0x2_10c02000 bereits von Hand nachgebildet; der laufende AOP fügt
+  dem Codec-Takt nichts hinzu (Test oben). Offen bleibt `_updateArcIOState` (Arc-I/O-Zustand von Maggie) und die
+  PLL-Referenz der CS42L71-SPIv2-Brücke.
