@@ -15,7 +15,7 @@ Das Rootfs liegt wahlweise auf einer eigenen Partition im **internen Speicher**
 
 | Komponente | Status | Umsetzung |
 |---|---|---|
-| Display / Backlight | ✅ | simpledrm 750×1334, Phosh (llvmpipe) |
+| Display / Backlight | ✅ | simpledrm 750×1334, Phosh (Software-Rendering: phoc pixman, GTK Cairo) |
 | Touchscreen | ✅ | eigener `hx-touch`-Treiber + `hx-touchd` (Kernel-Patches) |
 | Tasten | ✅ | gpio-keys |
 | USB-Netzwerk / SSH | ✅ | USB-Gadget NCM, `172.16.42.1` |

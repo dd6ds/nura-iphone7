@@ -13,13 +13,13 @@ printf '[Service]\nTimeoutStartSec=600\n' > "$R/etc/systemd/user/mobi.phosh.OSK.
 
 # 2) mask user services without matching hardware
 for u in cellbroadcastd.service mmsd-tng.service vvmd.service sm.puri.Chatty-daemon.service \
-         obex.service usb-moded-notify.service mobi.phosh.PhoshTour-first-login.service \
+         usb-moded-notify.service mobi.phosh.PhoshTour-first-login.service \
          udiskie.service fbd-alert-slider.service localsearch-3.service \
          evolution-source-registry.service evolution-addressbook-factory.service \
          evolution-calendar-factory.service goa-daemon.service goa-identity-service.service; do
     ln -sf /dev/null "$R/etc/systemd/user/$u"
 done
-for u in ModemManager.service bluetooth.service eg25-manager.service; do
+for u in ModemManager.service eg25-manager.service; do   # bluetooth stays on
     ln -sf /dev/null "$R/etc/systemd/system/$u"
 done
 

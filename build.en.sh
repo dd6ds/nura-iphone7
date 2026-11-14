@@ -358,14 +358,17 @@ INI
 
     # 2) Optimise software rendering (no GPU driver)
     sudo mkdir -p "$m/etc/environment.d" "$m/etc/profile.d"
-    # WLR_RENDERER_ALLOW_SOFTWARE=1: phoc uses GLES2/llvmpipe instead of pixman –
-    # needed so that wayvnc (ext-image-copy-capture) gets pixel formats.
-    printf 'GSK_RENDERER=cairo\nLIBGL_ALWAYS_SOFTWARE=1\nGALLIUM_DRIVER=llvmpipe\nWLR_RENDERER_ALLOW_SOFTWARE=1\n' \
+    # WLR_RENDERER=pixman: phoc renders directly on the CPU instead of GLES2/llvmpipe –
+    # measured (tools/gfx_bench.en.py): phoc CPU 76 % -> 8 %, 28 -> 37 frames/s, scrolling 37 -> 55.
+    # wayvnc still delivers images with it (zwlr_screencopy via the shim below).
+    printf 'GSK_RENDERER=cairo\nLIBGL_ALWAYS_SOFTWARE=1\nGALLIUM_DRIVER=llvmpipe\nWLR_RENDERER_ALLOW_SOFTWARE=1\nWLR_RENDERER=pixman\n' \
         | sudo tee "$m/etc/environment.d/50-iphone-nura.conf" >/dev/null
-    printf 'export GSK_RENDERER=cairo\nexport LIBGL_ALWAYS_SOFTWARE=1\nexport GALLIUM_DRIVER=llvmpipe\nexport WLR_RENDERER_ALLOW_SOFTWARE=1\n' \
+    printf 'export GSK_RENDERER=cairo\nexport LIBGL_ALWAYS_SOFTWARE=1\nexport GALLIUM_DRIVER=llvmpipe\nexport WLR_RENDERER_ALLOW_SOFTWARE=1\nexport WLR_RENDERER=pixman\n' \
         | sudo tee "$m/etc/profile.d/50-iphone-nura.sh" >/dev/null
     sudo grep -q WLR_RENDERER_ALLOW_SOFTWARE "$m/etc/environment" 2>/dev/null \
         || echo 'WLR_RENDERER_ALLOW_SOFTWARE=1' | sudo tee -a "$m/etc/environment" >/dev/null
+    sudo grep -q '^WLR_RENDERER=' "$m/etc/environment" 2>/dev/null \
+        || echo 'WLR_RENDERER=pixman' | sudo tee -a "$m/etc/environment" >/dev/null
 
     # 3) Without touch there is no PIN unlock on the device -> disable lock/blanking
     sudo mkdir -p "$m/usr/share/glib-2.0/schemas"
@@ -429,7 +432,7 @@ UNIT
     printf '[Service]\nTimeoutStartSec=600\n' \
         | sudo tee "$m/etc/systemd/user/mobi.phosh.Shell.service.d/timeout.conf" >/dev/null
     # Switch off services without matching hardware (saves RAM/CPU/IO)
-    for svc in ModemManager.service bluetooth.service eg25-manager.service; do
+    for svc in ModemManager.service eg25-manager.service; do   # bluetooth stays on (BT works, r118)
         sudo ln -sf /dev/null "$m/etc/systemd/system/$svc"
     done
     for ad in udiskie.desktop org.gnome.SettingsDaemon.Smartcard.desktop \

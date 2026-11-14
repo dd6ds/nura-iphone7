@@ -15,7 +15,7 @@ The root filesystem lives either on its own partition in **internal storage**
 
 | Component | Status | Implementation |
 |---|---|---|
-| Display / backlight | ✅ | simpledrm 750×1334, Phosh (llvmpipe) |
+| Display / backlight | ✅ | simpledrm 750×1334, Phosh (software rendering: phoc pixman, GTK Cairo) |
 | Touchscreen | ✅ | custom `hx-touch` driver + `hx-touchd` (kernel patches) |
 | Buttons | ✅ | gpio-keys |
 | USB networking / SSH | ✅ | USB gadget NCM, `172.16.42.1` |

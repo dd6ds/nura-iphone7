@@ -8,7 +8,7 @@ Ausgelesen am 2026-11-06 per SSH über den Netboot (Kernel 7.0.12, Hoolock, 16K-
 | CPU / RAM      | 2 Kerne aktiv, 1,9 GB RAM, 16K-Pages                          | zram-Swap aktiv |
 | Display        | `simpledrm` 750×1334, `/dev/dri/card0`, Connector `Unknown-1` | phoc-Skalierung 2 |
 | Backlight      | `20e200080.backlight` (max 2047) – funktioniert                | Helligkeit in Phosh nutzbar |
-| GPU            | kein Treiber (Hoolock: TBA)                                   | Mesa llvmpipe, GSK_RENDERER=cairo |
+| GPU            | kein Treiber (Apple AGX G9P, siehe research/GPU-ANALYSE.md)   | phoc pixman, GSK_RENDERER=cairo |
 | Eingabe        | nur `gpio-keys` (Power, Lautstärke) – **kein Touchscreen**    | Autologin, keine Sperre, **wayvnc** |
 | Speicher       | kein NVMe-Treiber                                             | Rootfs nur per Netboot (NBD) |
 | Netz           | nur USB-Gadget `usb0` (NCM), kein WLAN/BT/Modem               | NetworkManager darf usb0 nicht verwalten |
