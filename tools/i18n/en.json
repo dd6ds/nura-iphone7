@@ -1205,5 +1205,22 @@
  "# Werte aus der ADT dma-channels (mca1: 0x2a, 0x21, 0, 0xcc, 0xac, 0, 0, 0).": "# Values from the ADT dma-channels (mca1: 0x2a, 0x21, 0, 0xcc, 0xac, 0, 0, 0).",
  "# AppleSmartIODMA::_startDMACommand (0x…65b0b..): Puffer-Handle H im Segmentspeicher; Kopf (6 Einträge):": "# AppleSmartIODMA::_startDMACommand (0x…65b0b..): buffer handle H in the segment memory; header (6 entries):",
  "# +0x38 = Richtungs-Flag, +0x3c = Anzahl Segmente; Segmente ab Eintrag H+6, je {u64 Adresse, u32 Länge}.": "# +0x38 = direction flag, +0x3c = number of segments; segments from entry H+6, each {u64 address, u32 length}.",
- "# Nachricht EP = Kanal, OP 6, DATA = H. Testdaten: Sinus 1 kHz, 48 kHz, 16 Bit Stereo, an RAM+0xc0000.": "# Message EP = channel, OP 6, DATA = H. Test data: 1 kHz sine, 48 kHz, 16-bit stereo, at RAM+0xc0000."
+ "# Nachricht EP = Kanal, OP 6, DATA = H. Testdaten: Sinus 1 kHz, 48 kHz, 16 Bit Stereo, an RAM+0xc0000.": "# Message EP = channel, OP 6, DATA = H. Test data: 1 kHz sine, 48 kHz, 16-bit stereo, at RAM+0xc0000.",
+ "\"\"\"mca_v4.py N [start|stop|zeige] – MCA N (mca-version >= 4, A10) wie iOS AppleAE2MCA::_setIISConfig_v4 einrichten (root).": "\"\"\"mca_v4.py N [start|stop|zeige] – set up MCA N (mca-version >= 4, A10) like iOS AppleAE2MCA::_setIISConfig_v4 (root).",
+ "Format aus ADT mca1/virtual-mca1a/audio-speaker-top `reg` (cs35l26): 48 kHz, 15 Slots à 16 Bit + 10 Bit Füllung": "Format from ADT mca1/virtual-mca1a/audio-speaker-top `reg` (cs35l26): 48 kHz, 15 slots of 16 bits + 10 padding bits",
+ "= 250 Bittakte/Rahmen, Bittakt 12 MHz (= MCLK), TX-Slotmaske 3 (2 Kanäle), RX-Slotmaske 0x3e (5 Kanäle).": "= 250 bit clocks/frame, bit clock 12 MHz (= MCLK), TX slot mask 3 (2 channels), RX slot mask 0x3e (5 channels).",
+ "Hilfsfunktion 0x…5ab760c liefert daraus: Slotbreite 16, Rahmen 250, Füllung 10, Teiler 1.": "Helper 0x…5ab760c derives from it: slot width 16, frame 250, padding 10, divider 1.",
+ "Folge (0x…644c5f0): 3=3 (warten Bit 1:0 = 0), 9=1 (warten Bit 0 = 0), 8=7=0x1fff, 2=0x1010,": "Sequence (0x…644c5f0): 3=3 (wait bits 1:0 = 0), 9=1 (wait bit 0 = 0), 8=7=0x1fff, 2=0x1010,",
+ "0x19 = TX-FIFO ((Tiefe-1)<<16 | Tiefe, Tiefe = min(48, FIFO-Größe aus Reg 1 − 3) auf 4 gerundet),": "0x19 = TX FIFO ((depth-1)<<16 | depth, depth = min(48, FIFO size from reg 1 − 3) rounded to 4),",
+ "0x21 = RX-FIFO 0x30004, 5 = Füllung 10, 0x1a = 3, 0x1b = 0, 0x22 = 0x3e, 0x23 = 0,": "0x21 = RX FIFO 0x30004, 5 = padding 10, 0x1a = 3, 0x1b = 0, 0x22 = 0x3e, 0x23 = 0,",
+ "0x18 = 0x132 (TX-Serialisierer, Bit 0 aus), 0x20 = 0x136, 8 = 0x1fa4, 4 = 0x10e000.": "0x18 = 0x132 (TX serializer, bit 0 off), 0x20 = 0x136, 8 = 0x1fa4, 4 = 0x10e000.",
+ "Start (0x…644d17c): 0x18 = 0x133 (Bit 0 = an), 4 |= 2.": "Start (0x…644d17c): 0x18 = 0x133 (bit 0 = on), 4 |= 2.",
+ "Vorher: PMGR-Power (0x80178+8N), NCO N auf 12 MHz, ClkCon (0x20a002000+4N) = 0x50,": "Before that: PMGR power (0x80178+8N), NCO N to 12 MHz, ClkCon (0x20a002000+4N) = 0x50,",
+ "I2S-Schalter (0x20a004000): pin2 <- audN, audN <- pin2, Pin-2-Freigabe 0x44 |= 0x11.": "I2S switch (0x20a004000): pin2 <- audN, audN <- pin2, pin 2 enable 0x44 |= 0x11.",
+ "Nur Register 0x00–0xff lesen – ab 0x100 hängt das System.\"\"\"": "Only read registers 0x00–0xff – from 0x100 the system hangs.\"\"\"",
+ "print(f\"MCA{N} Version {rd(0):#x}, Reg1 (FIFO-Größen) {rd(1):#010x}\")": "print(f\"MCA{N} version {rd(0):#x}, reg1 (FIFO sizes) {rd(1):#010x}\")",
+ "print(f\"  Zeitüberschreitung: Reg {i:#x} = {rd(i):#x}\"); return False": "print(f\"  Timeout: reg {i:#x} = {rd(i):#x}\"); return False",
+ "sw(17, swr(17) | 0x11)              # Pin-2-Freigabe": "sw(17, swr(17) | 0x11)              # pin 2 enable",
+ "print(f\"Schalter: pin2={swr(2):#x} aud{N}={swr(2 + N):#x} Freigabe={swr(17):#x}\")": "print(f\"Switch: pin2={swr(2):#x} aud{N}={swr(2 + N):#x} enable={swr(17):#x}\")",
+ "print(f\"TX-FIFO-Tiefe {tiefe}\")": "print(f\"TX FIFO depth {tiefe}\")"
 }

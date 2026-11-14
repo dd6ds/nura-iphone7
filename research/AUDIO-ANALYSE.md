@@ -666,3 +666,26 @@ im 1-MB-Bereich ist nur 0xdf000..0xe0000), dann Endpunkte 32+ (SPU-Protokoll) f�
   `tools/mca_init.py` nutzt noch die alte (v<4-)Folge – das erklärt, warum dort nur 4/0xb/0xe hängen blieben.
 - Nächster Schritt: mca1 nach v4-Folge als TDM-Sender einrichten (Format aus ADT audio-data cs35l26 / tdm-config),
   Serialisierer starten, dann DMA-Puffer (Sinus) laufen lassen und den CS35L26 nach iOS-Folge einschalten.
+
+### mca1 nach iOS-v4-Folge eingerichtet, SIO-DMA läuft noch nicht (2026-11-14, 20 Uhr)
+- `_setIISConfig_v4` vollständig nachgerechnet. Das Format kommt aus ADT `mca1/virtual-mca1/virtual-mca1a/
+  audio-speaker-top` `reg` (36 Byte = die Stream-Struktur des Treibers): 48 kHz, 15 Slots à 16 Bit + 10 Bit
+  Füllung = 250 Bittakte/Rahmen → Bittakt 12 MHz (= MCLK), TX-Slotmaske 3 (2 Kanäle), RX-Maske 0x3e (5 Kanäle).
+  Hilfsfunktion 0x…5ab760c (anderer Kext) liefert Slotbreite 16, Rahmen 250, Füllung 10, Teiler 1.
+- Registerwerte: 2 = 0x1010, 0x19 = 0xb000c (TX-FIFO-Tiefe 12; FIFO-Größe 16 aus Reg 1 = 0x00100010),
+  0x21 = 0x30004, 5 = 10, 0x1a = 3, 0x22 = 0x3e, 0x18 = 0x132, 0x20 = 0x136, 8 = 0x1fa4 (IRQ-Maske,
+  1 = gesperrt), 4 = 0x10e000. Start (0x…644d17c): 0x18 = 0x133 (Bit 0 = Serialisierer an), 4 |= 2.
+  Bei mca-version < 4 wäre es Reg 3 |= 2 (Tabellen 0x…55ace4c/e64/e7c).
+- `tools/mca_v4.py 1 init|start|stop|zeige`: alles bleibt stehen. Nach `start` geht Reg 7 (IRQ-Status) von
+  0x4 auf 0x8000000c – Bit 3 (vermutlich TX-Unterlauf) zeigt, dass der Serialisierer taktet und Daten will.
+- SIO: `sio_ctl.py config` (ACK) und `start` (ACK, Daten = Opcode), aber keine Fertigmeldung, Reg 7 bleibt.
+  Zweites `config` → Opcode 0x66 (NAK) mit Code 3 (Kanal schon eingerichtet).
+- Shim-Block der SIO liegt (aus SIO-Sicht 0x0a00_0000) beim AP auf **0x2_0a00_0000** und ist lesbar:
+  +0x0 = 0x00010021, +0x4 = AXI-Fehlerstatus Shim0 (0), +0x1000/+0x1004 = 0x7bfff/0x7ffff,
+  +0x1020/+0x1024 = 0x7beff/0x67bbe (Bit 14 = mca1 TX gelöscht), +0x1040… (MASK/RAW/MASKED) = 0.
+  **Lesen ab 0x2_0a00_1100 hängt** (nicht anfassen).
+- SIO-Konsole gefunden: Endpunkt 1, setParam 8 = Seite, 9 = Größe (Objekt 0xb098, Ausgabe 0x7330/0x12d4).
+  Annahme mit ACK; bisher keine Ausgabe im Puffer.
+- Offen: warum der Shim keine Daten in den FIFO schiebt (DMA-Anforderung MCA → Shim, Segment-/Adressformat,
+  oder ein weiterer Opcode). Nächste Ansätze: Shim-Zustandsausgabe (0x224c, „Shim states“) auslösen,
+  op-6-Pfad in der SIO-Firmware lesen.
