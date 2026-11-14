@@ -456,3 +456,18 @@ im 1-MB-Bereich ist nur 0xdf000..0xe0000), dann Endpunkte 32+ (SPU-Protokoll) f�
   und **das iPhone friert sofort ein** (< 0,1 s, Protokoll per fsync gesichert). Vermutung: Der Audio-Teil schaltet
   beim Start Takt/Strom/Pins (MCA, Verstärker, „mux“), die Linux ebenfalls benutzt. Nächster Schritt: Kette vor
   Endpunkt 44 (aop-audio) anhalten und prüfen, ob das System dann stabil bleibt.
+
+### AOP: Einfrieren eingegrenzt – Ursache ist (sehr wahrscheinlich) unser Mailbox-Polling (2026-11-14)
+- Dienste einzeln bedient (je Lauf neuer gpu_rtkit mit `SPU_EP=…`, das 0x80 vorher per 0xa0 von Hand beantwortet):
+  bis einschließlich 35 (compass) stabil. Den letzten Dienst 34 (gyro) mit `research/maggie/se/letzter_schritt.py`
+  bedient und danach **die AKF-Register nicht mehr angefasst** -> das iPhone lief weiter (> 30 s, SSH ok).
+- Im Lauf mit Einfrieren lief das Polling (alle 2 ms akf+0x4020) weiter, während das AOP nach „aop-audio … ready!!“
+  in den Leerlauf ging. Vermutung: Das AOP schaltet im Leerlauf den Takt/Strom seines AKF-Blocks ab („Seting AOP_CPU
+  power state“), ein AP-Zugriff darauf hängt dann den Bus auf. iOS pollt nicht: AppleA7IOP arbeitet mit dem
+  Outbox-Interrupt (`AppleA7IOP::_outboxHandler`).
+- Kernel AppleA7IOPV2 (0xfffffff005bee628): vor Zugriffen setzt es Bit 1 in einem Steuerregister ([obj+0x1a8]) und
+  wartet auf Bit 2 (Timeout 0xe00002bc) – vermutlich ein Weck-Handshake. Muss noch genau zugeordnet werden.
+- Zuordnung VA<->PA im AOP: VA 0xc100_0000 + x = PA 0x2_1000_0000 + x (L2-Tabelle IOP 0x1079000, Einträge 8–14).
+  Das AOP bildet nur seinen eigenen Block 0x2_1000_0000–0x2_10e0_0000 ab, keine AP-Peripherie.
+- Nächste Schritte: (1) Weck-Handshake aus AppleA7IOPV2 genau verstehen, (2) Mailbox nur noch nach Wecken bzw.
+  interruptgesteuert lesen (Kernel-Treiber statt /dev/mem-Polling), (3) dann die Audio-Dienste (44/38/45) ansprechen.
