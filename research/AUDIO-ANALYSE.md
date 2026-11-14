@@ -624,3 +624,21 @@ im 1-MB-Bereich ist nur 0xdf000..0xe0000), dann Endpunkte 32+ (SPU-Protokoll) f�
 - Folgerung: Ein Testton geht nur über die SIO. Wege: (a) SIO-Firmware selbst starten (eigenes Mailbox-Protokoll
   „KF-SIO“, aus AppleT8010SmartIO zu entschlüsseln) oder (b) prüfen, ob die Shim-FIFOs vom AP aus erreichbar
   sind (AP-Adresse des SIO-Fensters 0x0a000000 noch unbekannt; ADT `sio` reg = nur 0x2_0ae00000, 64 KB).
+
+### SIO startet unter Linux (2026-11-14, 18:45)
+- SIO-Steuerblock 0x2_0ae00000 hat dasselbe AKF-Layout wie der AOP (CPU +0x44 Bit 4, Fenster +0x08..+0x3c,
+  Postfächer +0x4008/+0x4020, Nachricht lesen +0x4038). Unter Nura steht die SIO-CPU (+0x44 = 0); iBoot
+  hinterlässt Fenster 0/1 = IOP 0 -> 0x2_0d000000, Größe 0xff3000.
+- `tools/sio_fw_extract.py` holt die Firmware lokal aus dem Kernelcache (sha256 459e2140…), `tools/sio_boot.py`
+  lädt sie nach 0x8_4070_0000 (oberstes MB des aop-fw-Bereichs; beim AOP dann `PUFFER_BIS=0x300000`), legt
+  beide Fenster auf IOP 0 -> diesen RAM (1 MB) und startet die CPU.
+- **Falle:** 0x4038 bei leerem Ausgang lesen setzt die Fehlerbits 0xc0000 der Postfächer; die SIO meldet
+  daraufhin PANIC (OP 0x6a). Löschen geht nur per **PMGR-Reset ps_sio** (0x2_0e080170 Bit 31 setzen/löschen),
+  der auch die Fenster zurücksetzt – `sio_boot.py` macht das automatisch.
+- **Nach sauberem Reset meldet die SIO sofort `0x036d0000`: Endpunkt 0 (Control), Opcode 0x6d, Parameter 3 =
+  `SMARTIO_PROTOCOL_VERSION`** – die Firmware läuft und wartet auf den AP.
+- Nachrichtenformat (AppleSmartIO::sendMessage/_doorbellAction): Byte 0 = Endpunkt (Kanal), Byte 1 = Tag,
+  Byte 2 = Opcode, Byte 3 = Parameter, Bit 63:32 = Daten. Control-Opcodes vom SIO: 0x6d = bereit,
+  0x6a = Panic (Text im vom AP gestellten Panic-Puffer).
+- Nächster Schritt: AP-Seite aus AppleSmartIO/AppleSmartIODMA nachbauen – Puffer (Panic/Coredump/Perf/Trace),
+  „OS active“, dann pro DMA-Kanal Konfiguration (Shim: FIFO/Trigger/Limit) und Segment-/Puffer-Übergabe.
