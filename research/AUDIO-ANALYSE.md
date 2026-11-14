@@ -751,3 +751,23 @@ im 1-MB-Bereich ist nur 0xdf000..0xe0000), dann Endpunkte 32+ (SPU-Protokoll) f�
 - Hörtest 4 (Ton in allen vier Slots, Verstärker 10 s mit Taktquelle MCLK, 10 s mit SCLK): **still**.
 - Stand: DMA → mca1 läuft, Verstärker lässt sich schalten, aber kein Ton. Offen bleibt, ob mca1/pin2 den
   Verstärker überhaupt erreicht (AOP-I2S-Schalter, Maggie) und ob der MCLK wirklich am Verstärker ankommt.
+
+### Signalweg zum Lautsprecher aus ADT und Kexts (2026-11-14, 19:30)
+- **Der CS35L26 an AP-I2C2 ist der OBERE Lautsprecher** (`audio-speaker-top`, primary-speaker `SpoT`,
+  secondary-speaker `StoB`) – also die Hörmuschel, die beim iPhone 7 als zweiter Stereo-Lautsprecher dient.
+- **Den unteren Lautsprecher steuert der AOP selbst:** `aop/iop-aop-nub/SPUApp` hat `spkamp-names = arc, btmspk`
+  mit `spkamp-config_arc` (06 07 08 02 0d 00 08 f0 e8 43 …) und `spkamp-config_btmspk` (00 01 04 02 0d 00 08 f0
+  e8 40 … 30 01). Das passt zur AOP-syslog-Meldung „AmpWorker: ARC service not found / BTMSPK service not found“.
+  Der Verstärker des unteren Lautsprechers hängt also an einem AOP-eigenen Bus, nicht am AP.
+- I2S: mca1 **und** mca2 routen auf pin2 (`aud1->pin2`, `aud2->pin2`, je 0x30303) – pin2 ist ein gemeinsamer
+  TDM-Bus (Codec-ASP „hawk“ über mca2 als Taktmaster `AUD1('ap2h')`, Verstärker oben, Maggie). mca0 geht auf
+  pin4 und zusätzlich über den AOP-Schalter (`i2s_route_aop`: mca1 -> pin0).
+- Maggie (`spi1/maggie-arc`, Kext AppleMaggieArcAudio): FPGA-Bitstrom `MaggieBitstream_D10.bin`, Funktionen
+  `maggie_reset` (GPIO 0x16), `maggie_done` (GPIO 0x1a), `aop_maggie_enable` (magE), `aop_mclk_control` (mckE),
+  optional `spkamp_arc_state` (AOP, „_updateArcIOState“), `codec_asp_dout`; `maggie_tdm_config = 00 02 0a 08`.
+  Maggie ist Haptik-Treiber (Taptic Engine, „Button Haptics Asset“) und sitzt mit im Audioweg („ARC“).
+  Der Verstärker oben hängt laut ADT von Maggie ab (`dependency-name AppleMaggie`, `function-maggie_enable`).
+- Hörtest 5 an der Hörmuschel (Ton in allen vier Slots, 10 s SCLK, 10 s MCLK): **still**.
+- Folgerung: Der Ton für den oberen Lautsprecher läuft sehr wahrscheinlich über Maggie (geladen + per AOP magE
+  eingeschaltet), der für den unteren über den AOP (AmpWorker). Ohne Maggie bzw. vollständig laufenden AOP
+  kommt am Verstärker kein Signal an.
