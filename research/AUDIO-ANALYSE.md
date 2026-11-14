@@ -294,3 +294,17 @@
 - Audio vorerst pausiert. Wiederaufnahme am besten mit Messung (Logikanalysator am Codec-MCLK) oder
   mit einem echten Linux-MCA-Treiber, der einen Stream inkl. DMA startet (MCLK evtl. nur bei laufendem
   Serialisierer).
+
+## AOP-Coprozessor starten – Vorarbeit (2026-11-14, nach dem GPU-Erfolg)
+Gleiche Treiberfamilie wie die GPU (AppleA7IOP, AKF V2, RTKit 1827.140.2) → siehe research/GPU-ANALYSE.md.
+- `tools/aop_peek.py` (nur lesend): AKF 0x2_10800000: CPU_CTRL +0x44 = 0 (steht), INBOX/OUTBOX 0x20001
+  (leer), IDLE 0x79. Fenster-Register (von iBoot gesetzt): +0x08 = 0x10e00000, +0x10 = 2 (phys. 0x2_10e00000
+  = AOP-SRAM), +0x18/+0x20 = 0, +0x28 = 0x1ff000, +0x38 = 1; außerdem +0x0c = 0x40000000, +0x14 = 1,
+  +0x1c = 0xc0000000, +0x2c = 0xfffff000, +0x3c = 1 (zweites Fenster?). 0x2_10000408 = 0x1ddeae2.
+  SRAM-Anfang: 00030201 00050220 000d0000 000d0000 00080000 000c0000 (keine ARM-Vektoren → keine Firmware geladen).
+- `research/tools/osbin.py`: aopfw.bin ist OSSerializeBinary (0xd3):
+  firmware[0] AOP „AppleSPUFirmwareBuilder-373.100.9~11772“, 669 568 Byte (Code ab IOP 0x0100_0000);
+  firmware[1] AOP_ext, Segment `__ETEXT`, 26 976 Byte, Adresse 0x010d_8000, Tag 0x454330.
+  Teile nach research/maggie/aopfw-teile/ (gitignored).
+- Offen: Speicheraufteilung (Hauptteil > 640 KB SRAM → zweites Fenster/DRAM), `segment-ranges` im ADT,
+  Start wie GPU (Fenster, CPU-Start, RTKit-Handshake mit tools/gpu_rtkit.py-Logik auf Basis 0x2_10800000).

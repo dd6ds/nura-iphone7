@@ -917,5 +917,11 @@
  "log(f\"  Puffer-Anforderung ({seiten} Seiten) passt nicht mehr in den reservierten RAM\")": "log(f\"  Buffer request ({seiten} pages) no longer fits into the reserved RAM\")",
  "log(f\"  Puffer-Anforderung: {seiten} Seiten -> IOP-Adresse {puffer_frei:#x} ({groesse:#x} Byte)\")": "log(f\"  Buffer request: {seiten} pages -> IOP address {puffer_frei:#x} ({groesse:#x} bytes)\")",
  "# STARTEP (5): Endpunkt in Bit 47:32, unteres Wort 1 oder 2 (Firmware-Handler IOP 0x2a29c)": "# STARTEP (5): endpoint in bit 47:32, low word 1 or 2 (firmware handler IOP 0x2a29c)",
- "log(f\"  STARTEP Endpunkt {e} (Flag {flag})\")": "log(f\"  STARTEP endpoint {e} (flag {flag})\")"
+ "log(f\"  STARTEP Endpunkt {e} (Flag {flag})\")": "log(f\"  STARTEP endpoint {e} (flag {flag})\")",
+ "\"\"\"aop_peek.py – Zustand des Audio-Coprozessors (AOP, A10) NUR LESEN (root).": "\"\"\"aop_peek.py – state of the audio coprocessor (AOP, A10), READ ONLY (root).",
+ "Blöcke laut ADT: AKF-Steuerung 0x2_10800000 (0x1c000), SRAM 0x2_10e00000 (0xa0000),": "Blocks per ADT: AKF control 0x2_10800000 (0x1c000), SRAM 0x2_10e00000 (0xa0000),",
+ "0x2_10000500 und 0x2_10000408 (vermutlich Auto-Boot-/Reset-Register). Registeroffsets wie beim": "0x2_10000500 and 0x2_10000408 (probably auto-boot/reset registers). Register offsets as for the",
+ "GPU-Coprozessor (AppleA7IOPV2, research/GPU-ANALYSE.md). Der Ausgang (+0x4038) wird NICHT gelesen,": "GPU coprocessor (AppleA7IOPV2, research/GPU-ANALYSE.md). The outbox (+0x4038) is NOT read,",
+ "weil Lesen dort eine Nachricht entnimmt.\"\"\"": "because reading there pops a message.\"\"\"",
+ "print(f\"CPU_CTRL +0x44 = {akf(0x44):#x} (Bit 4 = RUN)\")": "print(f\"CPU_CTRL +0x44 = {akf(0x44):#x} (bit 4 = RUN)\")"
 }
