@@ -609,3 +609,18 @@ im 1-MB-Bereich ist nur 0xdf000..0xe0000), dann Endpunkte 32+ (SPU-Protokoll) f�
   (Bus hängt). Nur Register 0x00–0xff anfassen.
 - Folgerung: Ein Testton braucht entweder den FIFO-Datenport (noch unbekannt) oder die SIO-DMA (eigener
   RTKit-Coprozessor, wie AOP/GPU anzusteuern).
+
+### SIO-Firmware gefunden, MCA-Daten laufen über SIO-„Shims“ (2026-11-14, 18:30)
+- Die SIO-Firmware (Kennung „KF-SIO“, **kein RTKit**, ARM/Thumb, Ladeadresse 0) steckt im `__DATA`-Segment
+  des Kexts `com.apple.driver.AppleT8010SmartIO` (Kernelcache-Datei-Offset 0x2704000, Firmware ab +0x1000,
+  ca. 545 KB). Nur lokal ausgewertet, nicht im Repo.
+- Kanaltabelle (Firmware 0xa00c, Index = SIO-DMA-Kanal aus der ADT `dma-channels`): 0x14–0x1b SPI0–3 TX/RX,
+  **0x28–0x31 MCA0–4 TX/RX** (mca1 TX = 0x2a), 0x3c–0x4d UART0–8, **0x50–0x59 MCA_SLAVE0–4** (Maggie-Pfad
+  virtual-mca1b = 0x52), 0x5a/0x5b PDM0, 0x64–0x67 DPA0/1.
+- Die Firmware konfiguriert pro Kanal einen **Shim** (eigene FIFO, Größe/Trigger/Limit, Funktion 0x4008); eine
+  Zieladresse im Peripheriegerät wird nicht programmiert. Die Shims liegen im SIO-eigenen Adressraum
+  (0x0a000000–0x0a100000 aus SIO-Sicht, Steuerung ab 0x0a001000). Der MCA bekommt seine Daten also über eine
+  feste Hardware-Verbindung vom Shim – **ein CPU-Datenport im MCA-Fenster existiert vermutlich nicht**.
+- Folgerung: Ein Testton geht nur über die SIO. Wege: (a) SIO-Firmware selbst starten (eigenes Mailbox-Protokoll
+  „KF-SIO“, aus AppleT8010SmartIO zu entschlüsseln) oder (b) prüfen, ob die Shim-FIFOs vom AP aus erreichbar
+  sind (AP-Adresse des SIO-Fensters 0x0a000000 noch unbekannt; ADT `sio` reg = nur 0x2_0ae00000, 64 KB).
