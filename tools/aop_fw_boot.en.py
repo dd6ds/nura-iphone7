@@ -129,6 +129,16 @@ elif os.environ.get("FENSTER2") == "sram":
     akf.w32(0x3c, 1)
     log("Window 1 now    0c/14/1c/24/2c/34/3c = " + " ".join(f"{akf.r32(o):#x}" for o in (0x0c, 0x14, 0x1c, 0x24, 0x2c, 0x34, 0x3c)))
 
+# TUNE=1: apply the "AOP Global" tunables like iBoot 7459.140.15 for t8010 (register, mask, value)
+if os.environ.get("TUNE") == "1":
+    glob = Mem(0x210000000, 0x8000)
+    glob.w32(0x124, glob.r32(0x124) | 1)
+    for reg, maske, wert in ((0x00c, 0x10, 0), (0x200, 0xfff, 0), (0x218, 0xffffff, 0xc0),
+                             (0x21c, 0xffffff, 0x60), (0x220, 0xffffff, 0x493e00), (0x4014, 1, 1)):
+        alt = glob.r32(reg)
+        glob.w32(reg, (alt & ~maske) | wert)
+        log(f"  Tunable {0x210000000 + reg:#x}: {alt:#x} -> {glob.r32(reg):#x}")
+
 # 4) Start the CPU, poll the outbox. The AOP has "auto-boot": AppleA7IOP maps register index 2 for it
 #    (ADT reg[2] = 0x2_10000500) and writes 1 on start, 0 on stop (in addition to +0x44).
 auto = Mem(AUTOBOOT)
