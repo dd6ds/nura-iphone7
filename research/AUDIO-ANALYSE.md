@@ -327,3 +327,21 @@ Gleiche Treiberfamilie wie die GPU (AppleA7IOP, AKF V2, RTKit 1827.140.2) → si
 - Nächster Schritt: Boot-Pfad der AOP-Firmware nach dem MMU-Aufbau statisch verfolgen (Ghidra-Projekt vom
   2026-11-08): welche Speicherbereiche/Peripherie sie erwartet (SRAM-Adresse aus Sicht des AOP, iBoot-
   Übergabedaten, Fenster 1 = Peripherie-Zugang?).
+
+### AOP-Startcode statisch + dynamisch (2026-11-14)
+- Reset (ARM, IOP 0x0100_0068): Modus/VBAR/FPU, berechnet den **Slide** aus dem PC (Ladeadresse − 0x0100_0000)
+  und baut eine LPAE-Seitentabelle bei Ladeadresse + 0x78000 (Zeiger 0x0100_0058 = 0 → Standard 0x0107_8000),
+  die VA 0x0100_0000 auf die echte Ladeadresse abbildet → **Fenster 0 auf IOP 0 genügt**, FENSTER2 unnötig.
+- Kennwort 0x0100_a36fc: im Bild 0xFEED1B00 → Kaltstart; danach 0xCAFE4B0B (Warmstart-Marke), 0xBAADF1AC = Fehlerpfad.
+- Laufzeitbereich laut Literalen: 0x0100_0000–0x010d_7028 (+ AOP_ext bis 0x010d_e960) → passt in 1 MB.
+- Lauf mit IOP_BASIS=0: 819 Wörter geschrieben – Seitentabelle (780), RTKit-Task-Stack bei 0x0108_e7xx
+  (Füllung „RTKSTACK“), Marke 0x010a_36fc, Stack 0x010d_6fxx. Aufrufkette auf dem Stack:
+  0x0100_0394 (Start) → 0x0105_91e7 (Modus-Stacks, VBAR 0x0100_0580, dann bl 0x0105_a248) → 0x0105_a261.
+- 0x0105_a248 kopiert (memmove 0x0100_0bc8) einen **Block von Konfigurations-Einträgen** aus 0x010a_3290:
+  Kennungen (im Speicher rückwärts) `LCSD`, `SZSD`, `LZSD`, `SNUT`, `ZNUT`, `OTTR`, `ARcM` …, Werte im Bild alle 0
+  → **werden normalerweise von iBoot ausgefüllt** (Boot-Parameter/Tunables).
+- Auf dem Stack stehen außerdem 0x011f_8000 (Länge 0x1000) und 0x011f_8f80 – **außerhalb** unseres Fensters
+  (endet 0x0110_0000). Vermutung: AOP-SRAM (0xa0000) wird bei IOP 0x0116_0000–0x0120_0000 erwartet.
+- Nächste Schritte: (1) Fenster 1 auf IOP 0x0116_0000 → AOP-SRAM 0x2_10e00000 (0xa0000) testen;
+  (2) Bedeutung/Werte der Konfigurations-Einträge klären (iBoot setzt sie; ggf. aus einem iOS-Speicherabzug
+  oder dem iBoot-Code); (3) PC des hängenden AOP über Debug-/PC-Sample-Register ermitteln.
