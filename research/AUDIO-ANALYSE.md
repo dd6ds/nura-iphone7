@@ -308,3 +308,22 @@ Gleiche Treiberfamilie wie die GPU (AppleA7IOP, AKF V2, RTKit 1827.140.2) → si
   Teile nach research/maggie/aopfw-teile/ (gitignored).
 - Offen: Speicheraufteilung (Hauptteil > 640 KB SRAM → zweites Fenster/DRAM), `segment-ranges` im ADT,
   Start wie GPU (Fenster, CPU-Start, RTKit-Handshake mit tools/gpu_rtkit.py-Logik auf Basis 0x2_10800000).
+
+### AOP-Startversuche (2026-11-14, tools/aop_fw_boot.py)
+- iBoot lädt die AOP-Firmware bei unserem Boot-Weg (checkm8/PongoOS/m1n1) **nicht**: AOP-SRAM
+  0x2_10e00000 enthält nur zufälliges SRAM-Rauschen (163 804 von 163 840 Wörtern != 0).
+- Firmware-Basis bestätigt: 6829 Zeiger 0x010x_xxxx → Hauptteil ab IOP 0x0100_0000, AOP_ext ab 0x010d_8000.
+- DT `reserved-memory/aop-fw@840400000` (1 MB, no-map); Hauptteil an +0, AOP_ext an +0xd8000.
+- **Start braucht zusätzlich das Auto-Boot-Register:** AppleA7IOP bildet bei „auto-boot“ Register-Index 2
+  ab (ADT aop reg[2] = **0x2_10000500**) und schreibt beim Start 1, beim Anhalten 0 hinein
+  (zusätzlich zu akf+0x44 Bit 4). Ohne das: RUN-Bit gesetzt, aber keine Ausführung.
+  0x2_10000408 ist dagegen ein 32-kHz-Zähler (läuft hoch), kein Steuerregister.
+- Der AOP startet an IOP-Adresse 0: Fenster nur auf 0x0100_0000 → keine Ausführung; Fenster 0 auf IOP 0
+  → Ausführung. Zweiter Fenstersatz (+0x0c/+0x14/+0x1c/+0x24/+0x2c/+0x34/+0x3c; iBoot: IOP 0xc000_0000 →
+  phys 0x1_4000_0000, Länge 0xfffff000) als Alias IOP 0x0100_0000 → derselbe RAM (FENSTER2=1).
+- Ergebnis (IOP_BASIS=0 FENSTER2=1): Firmware läuft und baut **MMU-Seitentabellen ab RAM +0x78000**
+  (4-KB-Einträge 0x…483, fortlaufend +0x1000), insgesamt 819 Wörter geschrieben, IDLE 0x79 → 0x78.
+  AOP-SRAM bleibt unberührt. **Kein RTKit-HELLO** – die Firmware bleibt vorher stehen.
+- Nächster Schritt: Boot-Pfad der AOP-Firmware nach dem MMU-Aufbau statisch verfolgen (Ghidra-Projekt vom
+  2026-11-08): welche Speicherbereiche/Peripherie sie erwartet (SRAM-Adresse aus Sicht des AOP, iBoot-
+  Übergabedaten, Fenster 1 = Peripherie-Zugang?).
