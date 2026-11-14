@@ -563,3 +563,17 @@ im 1-MB-Bereich ist nur 0xdf000..0xe0000), dann Endpunkte 32+ (SPU-Protokoll) f�
 - Folgerung: Ein brauchbarer MCLK-Nachweis braucht etwas, das der Codec nur mit Takt tut – z. B. den Codec als
   ASP-Taktmaster laufen lassen und am MCA-Eingang (FIFO-/Statusregister) Bewegung sehen – oder eine Messung am
   MCLK-Pin.
+
+### Takt-Nachweis-Versuch (2026-11-14, 17 Uhr) – ohne Ergebnis
+- ASP-Test in der geplanten Form verworfen: Auf dem iPhone 7 ist der AP-MCA Taktmaster (`hawk_master =
+  AUD1('ap2h')`), der Codec Slave. Bewegung im MCA-Eingang käme dann vom MCA selbst und bewiese nichts.
+- Ersatz: `tools/cs42l71_kernbereit.py` schaltet wie iOS (0x…6bc6840) den Mikrofon-/ADC-Block ein
+  (0x10001 Bit 0 = 0) und wartet auf 0x310004 Bit 0. Mit `--takt` vorher das Ende von `enableAudioHW`:
+  0x10000 Bit 0/1 = 0 (Taktwahl MCLK statt RCO, 0x6bc3f04) und die Freischaltfolge 0x10 = 0x99,
+  0x120025 = 0x130025 = 0x66, 0x10 = 0 (0x6bc4988).
+- Getestet mit AOP-mckE an (apCnt 1), mca0 + mca2 voll initialisiert (je 12 MHz), Routen aud0->pin4 und
+  aud2->pin2: **0x310004 bleibt 0** (auch ohne `--takt`). 0x3000c liest jetzt 0x01 (nicht mehr 0).
+- Der Block braucht laut iOS vorher Mikrofon-Einstellungen (0x32001e, PDM, Versorgung) – also ebenfalls
+  kein sauberer Takt-Nachweis.
+- Stand: Ohne Datenblatt des CS42L71 fehlt ein eindeutiges „Takt läuft“-Bit. Sinnvolle Wege: Messung am
+  MCLK-Pin, oder den Lautsprecherpfad (CS35L26-Verstärker an spi2, gespeist über mca1/Maggie) angehen.

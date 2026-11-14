@@ -1119,5 +1119,15 @@
  "print(\"Status nach dem Kaltstart:\", hex(xfer([0x90, 0x00])[1]),": "print(\"Status after cold start:\", hex(xfer([0x90, 0x00])[1]),",
  "\" Seite 2:\", \" \".join(f\"{rd(0x20000 + r):02x}\" for r in range(8)))": "\" page 2:\", \" \".join(f\"{rd(0x20000 + r):02x}\" for r in range(8)))",
  "print(\"Lesefehler nach dem Kaltstart:\", e)": "print(\"Read error after cold start:\", e)",
- "print(\"ERGEBNIS:\", \"Codec-Init OK\" if ok else \"Codec-Init NICHT bereit\")   # kein Takt-Nachweis (läuft auch ohne MCLK)": "print(\"RESULT:\", \"codec init OK\" if ok else \"codec init NOT ready\")   # no proof of clock (also passes without MCLK)"
+ "print(\"ERGEBNIS:\", \"Codec-Init OK\" if ok else \"Codec-Init NICHT bereit\")   # kein Takt-Nachweis (läuft auch ohne MCLK)": "print(\"RESULT:\", \"codec init OK\" if ok else \"codec init NOT ready\")   # no proof of clock (also passes without MCLK)",
+ "\"\"\"cs42l71_kernbereit.py – Mikrofon-/ADC-Block des CS42L71 einschalten (root auf dem iPhone, Maggie im Reset).": "\"\"\"cs42l71_kernbereit.py – power up the microphone/ADC block of the CS42L71 (root on the iPhone, Maggie held in reset).",
+ "iOS AppleCS42L71Audio (0x…6bc6840, Mikrofonpfad): 0x10001 Bit 0 = 0 (Block einschalten), dann bis 100×10 ms": "iOS AppleCS42L71Audio (0x…6bc6840, microphone path): 0x10001 bit 0 = 0 (power the block up), then wait up to 100×10 ms",
+ "warten, bis 0x310004 Bit 0 = 1 meldet, danach 0x310005 Bit 0 = 1 und 0x310007 Bit 0 = 0.": "until 0x310004 bit 0 = 1, then 0x310005 bit 0 = 1 and 0x310007 bit 0 = 0.",
+ "Gedacht als Takt-Nachweis; der Block braucht aber vermutlich mehr als nur den Takt (Mikrofon-Versorgung).": "Meant as proof of a running clock; the block probably needs more than the clock (microphone supply).",
+ "--takt: vorher das Ende von enableAudioHW (Codec auf MCLK statt RCO), --zurueck: danach wieder abschalten\"\"\"": "--takt: first run the end of enableAudioHW (codec on MCLK instead of RCO), --zurueck: switch everything off again afterwards\"\"\"",
+ "print(\"vorher: 0x10000 =\", hex(rd(0x10000)), \" 0x10001 =\", hex(rd(0x10001)), \" 0x20000[1:0] =\", hex(rd(0x20000) & 3),": "print(\"before: 0x10000 =\", hex(rd(0x10000)), \" 0x10001 =\", hex(rd(0x10001)), \" 0x20000[1:0] =\", hex(rd(0x20000) & 3),",
+ "print(f\"BEREIT nach {i * 10} ms (0x310004 = {r:#04x})\"); break": "print(f\"READY after {i * 10} ms (0x310004 = {r:#04x})\"); break",
+ "print(f\"NICHT bereit nach 1 s (0x310004 = {r:#04x})\")": "print(f\"NOT ready after 1 s (0x310004 = {r:#04x})\")",
+ "# Ende von enableAudioHW (kalter Zweig): 0x10000 Bit 0 = 0, Taktwahl 0x6bc3f04(0): 0x10000 Bit 1 = 0": "# end of enableAudioHW (cold branch): 0x10000 bit 0 = 0, clock select 0x6bc3f04(0): 0x10000 bit 1 = 0",
+ "# (MCLK statt RCO), 0x6bc4988: 0x10 = 0x99, 0x120025 = 0x130025 = 0x66, 0x10 = 0": "# (MCLK instead of RCO), 0x6bc4988: 0x10 = 0x99, 0x120025 = 0x130025 = 0x66, 0x10 = 0"
 }
