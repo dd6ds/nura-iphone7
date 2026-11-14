@@ -829,3 +829,20 @@ im 1-MB-Bereich ist nur 0xdf000..0xe0000), dann Endpunkte 32+ (SPU-Protokoll) f�
   „Transfer läuft“, SMSTA 0x10050100 auch nach PMGR-Neustart des I2C-Blocks; GPIO 6 von 1 auf 0). pin1 liegt
   also auf Pads, die mit I2C2 bzw. dessen Geräten zusammenhängen – **pin1 nicht mehr anfassen**. Erholung
   nur per Neustart.
+
+### Lautsprecher-Umschaltung: Maggie per UART vom AOP (2026-11-14, 21:30)
+- Neuaufbau nach Neustart **ohne AOP-Start** funktioniert: SIO, mca1 (48 kHz), MCLK (`maggie_reg.py takt`:
+  Domäne 0x15 + 0x48), Maggie laden (CDONE = 1, Ping 0x2e8b), Maggie-Init, Verstärker-ID.
+- AOP „ARC AP REQUEST“ (0x100d1xx) schickt nur Dienst-Kommandos (0x23, 0x20) weiter. Die eigentliche
+  Umschaltung macht der Mux-Dienst (0x1011100 ff.): **ein Byte per UART an Maggie** – „MUX UART SYS“:
+  0x7e bzw. 0x4e (Flag +0x214), „MUX UART PLAY“: 0x06 bzw. 0x02 (je nach AP-/AOP-Anforderung).
+  0x1018cd8 ist nur Zeitstatistik. Maggie ist also der Audio-Umschalter vor dem Verstärker; Quelle wird
+  per UART gewählt.
+- AOP-Peripherieobjekte in .data (AOP-Offsets, PA = 0x2_0000_0000 + Offset + 0x1_0000_0000):
+  0x10cc0000 / 0x10cc4000 / 0x10cc8000 (gleiche vtbl 0x1077b04, vermutlich UARTs), 0x10cc1000/0x10ca1000
+  (vtbl 0x1077b74), 0x10ca0000, 0x100e0000, 0x10100000, 0x1013c000, 0x10c00000, 0x10008000.
+- **Achtung: Lesen von 0x2_10cc_0000 bei nicht laufendem AOP friert das iPhone ein** (Block ohne Strom/Takt).
+  Vor dem Zugriff muss die zugehörige AOP-Stromdomäne an sein (Kandidat aus der Domänentabelle) – oder der
+  AOP läuft.
+- Nächster Schritt: UART-Klasse (vtbl 0x1077b04) und Mux-Dienst-Konstruktor lesen -> welche UART an Maggie
+  hängt, welche Domäne sie braucht, Baudrate; dann das Umschalt-Byte vom AP aus senden.
