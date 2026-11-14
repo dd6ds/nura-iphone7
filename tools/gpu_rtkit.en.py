@@ -22,8 +22,16 @@ va = ctypes.addressof(ctypes.c_char.from_buffer(m))
 r32 = lambda o: ctypes.c_uint32.from_address(va + o).value
 
 
+# LOGDATEI=<path>: also write line by line with fsync to a file (survives a freeze
+# if the file is on internal storage, not in /tmp)
+_logf = open(os.environ["LOGDATEI"], "a") if "LOGDATEI" in os.environ else None
+
+
 def log(*a):
     print(*a, flush=True)
+    if _logf:
+        print(*a, file=_logf, flush=True)
+        os.fsync(_logf.fileno())
 
 
 def senden(msg):
@@ -166,6 +174,11 @@ while time.time() - t0 < dauer:
         # Reply: base + LAST/MORE. This RTKit generation (AOP) only enables the endpoints whose bit
         # the reply echoes back (firmware 0x10630f6) – so send the bitmap along (EPMAP_ECHO=0: without).
         echo = bitmap & ~1 if os.environ.get("EPMAP_ECHO", "1") == "1" else 0
+        # EP_ERLAUBT=1,2,4,48: only enable these endpoints (the rest stays off)
+        if "EP_ERLAUBT" in os.environ:
+            erlaubt = {int(x, 0) for x in os.environ["EP_ERLAUBT"].split(",")}
+            echo &= sum(1 << (e - basis * 32) for e in erlaubt if basis * 32 <= e < basis * 32 + 32)
+            log(f"  enabled: {[basis * 32 + b for b in range(32) if echo >> b & 1]}")
         verwaltung(8, (basis << 32) | echo | ((1 << 51) if letzte else 1))
         if letzte:
             log("Firmware endpoints: " + ", ".join(f"{e} ({NAMEN.get(e, '?')})" for e in endpunkte))
@@ -173,7 +186,7 @@ while time.time() - t0 < dauer:
                 # STARTEP (5): endpoint in bit 47:32, low word 1 or 2 (firmware handler IOP 0x2a29c)
                 flag = int(os.environ.get("STARTFLAG", "2"))
                 for e in endpunkte:
-                    if e != 0:
+                    if e != 0 and ("EP_ERLAUBT" not in os.environ or e in erlaubt):
                         log(f"  STARTEP endpoint {e} (flag {flag})")
                         verwaltung(5, (e << 32) | flag)
 log(f"End after {dauer:.0f}s; IDLE {r32(0x4040):#x}, IN {r32(0x4008):#x}, OUT {r32(0x4020):#x}")

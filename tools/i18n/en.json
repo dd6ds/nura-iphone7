@@ -1066,5 +1066,17 @@
  "# IOP 0x80 -> AP 0xa0; IOP 0x89 (Puffer-Wunsch, Größe Bit 31:10) -> AP 0xa1 mit Adresse;": "# IOP 0x80 -> AP 0xa0; IOP 0x89 (buffer request, size bits 31:10) -> AP 0xa1 with address;",
  "# IOP 0x8d/0x8e/… beschreiben den gemeinsamen Speicher; IOP 0x88 -> AP 0xa5 (fertig).": "# IOP 0x8d/0x8e/… describe the shared memory; IOP 0x88 -> AP 0xa5 (done).",
  "log(f\"  SPU ep {ep}: Typ {styp:#x}, Daten {nutz:#x}\")": "log(f\"  SPU ep {ep}: type {styp:#x}, data {nutz:#x}\")",
- "log(f\"  SPU ep {ep}: Puffer {groesse:#x} Byte -> IOP-Adresse {puffer_frei:#x}\")": "log(f\"  SPU ep {ep}: buffer {groesse:#x} bytes -> IOP address {puffer_frei:#x}\")"
+ "log(f\"  SPU ep {ep}: Puffer {groesse:#x} Byte -> IOP-Adresse {puffer_frei:#x}\")": "log(f\"  SPU ep {ep}: buffer {groesse:#x} bytes -> IOP address {puffer_frei:#x}\")",
+ "# LOGDATEI=<pfad>: zusätzlich zeilenweise mit fsync in eine Datei schreiben (überlebt ein Einfrieren,": "# LOGDATEI=<path>: also write line by line with fsync to a file (survives a freeze",
+ "# wenn die Datei auf dem internen Speicher liegt, nicht in /tmp)": "# if the file is on internal storage, not in /tmp)",
+ "_logf = open(os.environ[\"LOGDATEI\"], \"a\") if \"LOGDATEI\" in os.environ else None": "_logf = open(os.environ[\"LOGDATEI\"], \"a\") if \"LOGDATEI\" in os.environ else None",
+ "if _logf:": "if _logf:",
+ "print(*a, file=_logf, flush=True)": "print(*a, file=_logf, flush=True)",
+ "os.fsync(_logf.fileno())": "os.fsync(_logf.fileno())",
+ "# EP_ERLAUBT=1,2,4,48: nur diese Endpunkte freischalten (Rest bleibt aus)": "# EP_ERLAUBT=1,2,4,48: only enable these endpoints (the rest stays off)",
+ "if \"EP_ERLAUBT\" in os.environ:": "if \"EP_ERLAUBT\" in os.environ:",
+ "erlaubt = {int(x, 0) for x in os.environ[\"EP_ERLAUBT\"].split(\",\")}": "erlaubt = {int(x, 0) for x in os.environ[\"EP_ERLAUBT\"].split(\",\")}",
+ "echo &= sum(1 << (e - basis * 32) for e in erlaubt if basis * 32 <= e < basis * 32 + 32)": "echo &= sum(1 << (e - basis * 32) for e in erlaubt if basis * 32 <= e < basis * 32 + 32)",
+ "log(f\"  freigeschaltet: {[basis * 32 + b for b in range(32) if echo >> b & 1]}\")": "log(f\"  enabled: {[basis * 32 + b for b in range(32) if echo >> b & 1]}\")",
+ "if e != 0 and (\"EP_ERLAUBT\" not in os.environ or e in erlaubt):": "if e != 0 and (\"EP_ERLAUBT\" not in os.environ or e in erlaubt):"
 }

@@ -22,8 +22,16 @@ va = ctypes.addressof(ctypes.c_char.from_buffer(m))
 r32 = lambda o: ctypes.c_uint32.from_address(va + o).value
 
 
+# LOGDATEI=<pfad>: zusätzlich zeilenweise mit fsync in eine Datei schreiben (überlebt ein Einfrieren,
+# wenn die Datei auf dem internen Speicher liegt, nicht in /tmp)
+_logf = open(os.environ["LOGDATEI"], "a") if "LOGDATEI" in os.environ else None
+
+
 def log(*a):
     print(*a, flush=True)
+    if _logf:
+        print(*a, file=_logf, flush=True)
+        os.fsync(_logf.fileno())
 
 
 def senden(msg):
@@ -166,6 +174,11 @@ while time.time() - t0 < dauer:
         # Antwort: Basis + LAST/MORE. Diese RTKit-Generation (AOP) schaltet nur die Endpunkte frei, deren Bit
         # die Antwort zurückmeldet (Firmware 0x10630f6) – daher die Bitmap mitschicken (EPMAP_ECHO=0: ohne).
         echo = bitmap & ~1 if os.environ.get("EPMAP_ECHO", "1") == "1" else 0
+        # EP_ERLAUBT=1,2,4,48: nur diese Endpunkte freischalten (Rest bleibt aus)
+        if "EP_ERLAUBT" in os.environ:
+            erlaubt = {int(x, 0) for x in os.environ["EP_ERLAUBT"].split(",")}
+            echo &= sum(1 << (e - basis * 32) for e in erlaubt if basis * 32 <= e < basis * 32 + 32)
+            log(f"  freigeschaltet: {[basis * 32 + b for b in range(32) if echo >> b & 1]}")
         verwaltung(8, (basis << 32) | echo | ((1 << 51) if letzte else 1))
         if letzte:
             log("Endpunkte der Firmware: " + ", ".join(f"{e} ({NAMEN.get(e, '?')})" for e in endpunkte))
@@ -173,7 +186,7 @@ while time.time() - t0 < dauer:
                 # STARTEP (5): Endpunkt in Bit 47:32, unteres Wort 1 oder 2 (Firmware-Handler IOP 0x2a29c)
                 flag = int(os.environ.get("STARTFLAG", "2"))
                 for e in endpunkte:
-                    if e != 0:
+                    if e != 0 and ("EP_ERLAUBT" not in os.environ or e in erlaubt):
                         log(f"  STARTEP Endpunkt {e} (Flag {flag})")
                         verwaltung(5, (e << 32) | flag)
 log(f"Ende nach {dauer:.0f}s; IDLE {r32(0x4040):#x}, IN {r32(0x4008):#x}, OUT {r32(0x4020):#x}")
