@@ -540,3 +540,26 @@ im 1-MB-Bereich ist nur 0xdf000..0xe0000), dann Endpunkte 32+ (SPU-Protokoll) f�
 - **Trotzdem rastet die CS42L71-PLL nicht ein** (Status 0x90, RCO steht). Damit ist der AOP-Teil des Takts
   ausgeschöpft; die fehlende Stelle liegt beim Codec selbst (PLL-Referenzquelle/MCLK-Pin, Reset/Versorgung) oder
   in einer Pin-Funktion (Pinmux des MCLK-Ausgangs), die Linux nicht setzt.
+
+### AppleCS42L71Audio: Takt- und Hochfahrablauf neu gelesen (2026-11-14 abends) – wichtige Korrektur
+- **Die bisher als „Hochfahren“ nachgebaute Folge (0x200003/04, 0x300000/02, 0x10006, 0x10001 = 0x0e/0x20)
+  stammt aus `disableAudioHW`** (0x…6bc5a9c, „fast“-Zweig = Abschalten). Der Nicht-fast-Zweig derselben Funktion
+  schaltet den Codec auf seinen **RCO** um (0x1000a Bit 2, 0x10001 Bit 6 = 0, warten auf 0x3000c Bit 3,
+  0x20000[1:0] = 2, danach MCLK aus): Der RCO ist nur der **Ruhetakt ohne MCLK**. Dass er unter Nura nicht
+  anläuft, sagt also nichts über den MCLK aus.
+- **`_enableControlPLL`** (Brücken-PLL, Steuerbit 5) hat in AppleCS42L71Audio **keinen Aufrufer** (nur über die
+  vtable +0xb08, kein Aufruf gefunden). Unsere bisherigen „PLL rastet nicht ein“-Tests waren damit kein Maß
+  für den Takt.
+- **`enableAudioHW`** (0x…6bc5724), kalter Zweig:
+  1. MCLK an: `function-mclk_control` (falls vorhanden, Wert 12 000 000), sonst Frequenz vom Takt-Lieferanten
+     ([this+0x88], Eigenschaft `clock-frequency`/vtbl+0x590) muss **12 MHz** sein, dann
+     `setInputMCLKEnabled(1)` (vtbl+0x860 -> Lieferant vtbl+0x5a0). Beim iPhone 7 hat der Codec-Knoten kein
+     `function-mclk_control`; Lieferant ist `function-hawk_master = AUD1('ap2h')` (**AP-MCA**, hawking-Port),
+     zusätzlich `function-maggie_mclk = 47:mckE` (AOP).
+  2. 0x50000 = 0xa5, 10 ms, 0x50000 = 0, 1 ms; 0x5 Bit 1 = 0; `_initializeCodecRegisters`; 0x5 Bit 1 = 1;
+     0x6bc4a08 (Registervorgaben); 0x10000 Bit 0 = 0; dann Taktwahl 0x6bc3f04 und 0x6bc4988.
+- `tools/cs42l71_kaltstart.py` bildet Schritt 2 nach: läuft durch (Status 0x90, Brücke bleibt lesbar) – **mit und
+  ohne** AOP-mckE (apCnt 2 bzw. 0). Auch das ist also kein Takt-Nachweis.
+- Folgerung: Ein brauchbarer MCLK-Nachweis braucht etwas, das der Codec nur mit Takt tut – z. B. den Codec als
+  ASP-Taktmaster laufen lassen und am MCA-Eingang (FIFO-/Statusregister) Bewegung sehen – oder eine Messung am
+  MCLK-Pin.
