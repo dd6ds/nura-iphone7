@@ -1033,5 +1033,8 @@
  "sys.exit(\"Coprozessor läuft nicht – erst gpu_fw_boot.py <fw> 0 --laufen --neu (AOP: aop_fw_boot.py)\")": "sys.exit(\"coprocessor not running – run gpu_fw_boot.py <fw> 0 --laufen --neu first (AOP: aop_fw_boot.py)\")",
  "log(\"Endpunkte der Firmware: \" + \", \".join(f\"{e} ({NAMEN.get(e, '?')})\" for e in endpunkte))": "log(\"Firmware endpoints: \" + \", \".join(f\"{e} ({NAMEN.get(e, '?')})\" for e in endpunkte))",
  "RAM = 0x840400000                      # DT reserved-memory aop-fw@840400000 (4 MB seit 2026-11-14)": "RAM = 0x840400000                      # DT reserved-memory aop-fw@840400000 (4 MB since 2026-11-14)",
- "RAM_LEN = int(os.environ.get(\"RAM_LEN\", \"0x400000\"), 0)   # ganzes Fenster; Firmware nutzt das erste MB": "RAM_LEN = int(os.environ.get(\"RAM_LEN\", \"0x400000\"), 0)   # whole window; the firmware uses the first MB"
+ "RAM_LEN = int(os.environ.get(\"RAM_LEN\", \"0x400000\"), 0)   # ganzes Fenster; Firmware nutzt das erste MB": "RAM_LEN = int(os.environ.get(\"RAM_LEN\", \"0x400000\"), 0)   # whole window; the firmware uses the first MB",
+ "# ioreport: Typ 8/0xc werden (wie bei Asahi rtkit.c) unverändert zurückgeschickt": "# ioreport: types 8/0xc are echoed back unchanged (as in Asahi rtkit.c)",
+ "elif ep == 4 and etyp in (8, 0xc):": "elif ep == 4 and etyp in (8, 0xc):",
+ "senden(msg)": "senden(msg)"
 }

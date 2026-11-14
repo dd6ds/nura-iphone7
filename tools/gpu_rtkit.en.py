@@ -93,6 +93,9 @@ while time.time() - t0 < dauer:
             log(f"  Buffer request: {seiten} pages -> IOP address {puffer_frei:#x} ({groesse:#x} bytes)")
             senden((ep << 56) | (1 << 52) | (seiten << 44) | puffer_frei)
             puffer_frei += groesse
+        elif ep == 4 and etyp in (8, 0xc):
+            # ioreport: types 8/0xc are echoed back unchanged (as in Asahi rtkit.c)
+            senden(msg)
         continue
     if typ == 1:                                     # HELLO
         vmin, vmax = msg & 0xffff, (msg >> 16) & 0xffff

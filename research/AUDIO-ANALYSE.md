@@ -417,3 +417,11 @@ Nötig waren also: Firmware-Teile im 1-MB-Fenster ab IOP 0, Auto-Boot-Register, 
 p0CE (ext-Adresse), DICE ≠ 0 (ECID) – dazu chip-id/-rev, Zufallswerte, dArW. NOCACHE ist nur fürs Debugging.
 Nächste Schritte: Endpunkte starten (STARTEP), Puffer-Anforderungen bedienen (Fenster > 1 MB nötig: freier Platz
 im 1-MB-Bereich ist nur 0xdf000..0xe0000), dann Endpunkte 32+ (SPU-Protokoll) für Audio untersuchen.
+- 4-MB-Fenster (DT aop-fw 0x400000), frischer Start, ohne NOCACHE: HELLO -> HELLO_ACK -> EPMAP -> STARTEP für alle
+  Endpunkte -> **crashlog** fordert 1 Seite (an IOP 0x100000, gefüllt mit 0xef = leer), **ioreport** 4 Seiten
+  (IOP 0x104000, Kopf „IORb“, Kanal „Duty cycle“) – die Firmware arbeitet. syslog fordert (noch) keinen Puffer;
+  ioreport-Nachrichten Typ 8/0xc werden jetzt zurückgeschickt (gpu_rtkit.py). Kein IOP_PWR_ACK, die
+  SPU-Endpunkte 32–50 bleiben still: sie warten auf den AP (AppleSPU-Protokoll).
+- Zuordnung der SPU-Endpunkte unter iOS (iPhone SE, ioreg): 32 SPUApp, 33 accel, 34 gyro, 35 compass,
+  36 (ohne Treiber), 37 mca (Audio-Takt/MCA!), 38 cma, 39 devmotion, 40 spherecontrol, 41 borealis, 42 baseband,
+  43 gesture, 44 wakehint, 45 orientation … (Reihenfolge = AOPEndpoint1..; auf t8010 vermutlich ähnlich).
