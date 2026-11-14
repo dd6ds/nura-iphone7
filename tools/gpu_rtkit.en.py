@@ -80,6 +80,8 @@ def ram_lesen(adr, laenge):
 
 puffer_von = {}                                      # endpoint -> IOP address of the granted buffer
 syslog_n, syslog_groesse = 0, 0
+# SPU_EP=48,37: only answer these SPU endpoints (default: all)
+spu_eps = {int(x, 0) for x in os.environ["SPU_EP"].split(",")} if "SPU_EP" in os.environ else set(range(32, 64))
 # SYSLOG=<IOP address>,<count>,<text length>: adopt the syslog state of an already running coprocessor
 if "SYSLOG" in os.environ:
     a, n, g = (int(x, 0) for x in os.environ["SYSLOG"].split(","))
@@ -137,7 +139,7 @@ while time.time() - t0 < dauer:
                 text = e[0x20:].split(b"\0")[0].decode(errors="replace").rstrip()
                 log(f"  syslog [{ctx}] {text}")
             senden(msg)
-        elif ep >= 32 and "--spu" in sys.argv:
+        elif ep >= 32 and "--spu" in sys.argv and ep in spu_eps:
             # AOP SPU endpoints (MailboxSharedMemoryEndpoint, firmware 0x101c66c): type = bits 55:48.
             # IOP 0x80 -> AP 0xa0; IOP 0x89 (buffer request, size bits 31:10) -> AP 0xa1 with address;
             # IOP 0x8d/0x8e/… describe the shared memory; IOP 0x88 -> AP 0xa5 (done).

@@ -1078,5 +1078,8 @@
  "erlaubt = {int(x, 0) for x in os.environ[\"EP_ERLAUBT\"].split(\",\")}": "erlaubt = {int(x, 0) for x in os.environ[\"EP_ERLAUBT\"].split(\",\")}",
  "echo &= sum(1 << (e - basis * 32) for e in erlaubt if basis * 32 <= e < basis * 32 + 32)": "echo &= sum(1 << (e - basis * 32) for e in erlaubt if basis * 32 <= e < basis * 32 + 32)",
  "log(f\"  freigeschaltet: {[basis * 32 + b for b in range(32) if echo >> b & 1]}\")": "log(f\"  enabled: {[basis * 32 + b for b in range(32) if echo >> b & 1]}\")",
- "if e != 0 and (\"EP_ERLAUBT\" not in os.environ or e in erlaubt):": "if e != 0 and (\"EP_ERLAUBT\" not in os.environ or e in erlaubt):"
+ "if e != 0 and (\"EP_ERLAUBT\" not in os.environ or e in erlaubt):": "if e != 0 and (\"EP_ERLAUBT\" not in os.environ or e in erlaubt):",
+ "elif ep >= 32 and \"--spu\" in sys.argv and ep in spu_eps:": "elif ep >= 32 and \"--spu\" in sys.argv and ep in spu_eps:",
+ "# SPU_EP=48,37: nur diesen SPU-Endpunkten antworten (Standard: allen)": "# SPU_EP=48,37: only answer these SPU endpoints (default: all)",
+ "spu_eps = {int(x, 0) for x in os.environ[\"SPU_EP\"].split(\",\")} if \"SPU_EP\" in os.environ else set(range(32, 64))": "spu_eps = {int(x, 0) for x in os.environ[\"SPU_EP\"].split(\",\")} if \"SPU_EP\" in os.environ else set(range(32, 64))"
 }
