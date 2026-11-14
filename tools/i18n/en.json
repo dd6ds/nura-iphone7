@@ -1042,5 +1042,9 @@
  "mkfs.ext4 -F -b 4096 -L nura -U \"${NURA_UUID:-663e8742-8b87-4502-9304-ee983b927a67}\" ${D}p2": "mkfs.ext4 -F -b 4096 -L nura -U \"${NURA_UUID:-663e8742-8b87-4502-9304-ee983b927a67}\" ${D}p2",
  "USED_BYTES=\"${USED_BYTES:-9200000000}\"     # belegt laut tools/apfs_info.py (erstes iPhone 9,17 GB; anderes Gerät: messen!)": "USED_BYTES=\"${USED_BYTES:-9200000000}\"     # used according to tools/apfs_info.py (first iPhone 9.17 GB; other device: measure!)",
  "(( NEW_BYTES > USED_BYTES + 4000000000 )) || die \"zu klein: iOS braucht mind. 4 GB Reserve über den belegten $((USED_BYTES / 1000000)) MB\"": "(( NEW_BYTES > USED_BYTES + 4000000000 )) || die \"too small: iOS needs at least 4 GB headroom above the used $((USED_BYTES / 1000000)) MB\"",
- "iOS-Container verkleinern auf $((NEW_BYTES / 1000000)) MB (jetzt 32000 MB, belegt ~$((USED_BYTES / 1000000)) MB)": "Shrink iOS container to $((NEW_BYTES / 1000000)) MB (now 32000 MB, used ~$((USED_BYTES / 1000000)) MB)"
+ "iOS-Container verkleinern auf $((NEW_BYTES / 1000000)) MB (jetzt 32000 MB, belegt ~$((USED_BYTES / 1000000)) MB)": "Shrink iOS container to $((NEW_BYTES / 1000000)) MB (now 32000 MB, used ~$((USED_BYTES / 1000000)) MB)",
+ "\"\"\"cpu_top.py [sekunden] – CPU-Verbrauch aller Prozesse über einen Zeitraum messen (Summe über beide Kerne).": "\"\"\"cpu_top.py [seconds] – measure the CPU usage of all processes over a period (sum over both cores).",
+ "Gedacht zum Vergleich „flüssig/langsam“: während der Messung das iPhone bedienen.\"\"\"": "Meant for comparing \"smooth/slow\": use the iPhone while it measures.\"\"\"",
+ "print(f\"Gesamtlast in {dauer:.0f} s: {belegt:.0f} % (beide Kerne zusammen = 100 %)\")": "print(f\"Total load over {dauer:.0f} s: {belegt:.0f} % (both cores together = 100 %)\")",
+ "print(f\"  {100 * ticks / hz / dauer:6.1f} % eines Kerns  {name} ({pid})\")": "print(f\"  {100 * ticks / hz / dauer:6.1f} % of one core  {name} ({pid})\")"
 }
