@@ -976,5 +976,6 @@
  "echo \"-- palera1n rootless (iOS mit Jailbreak)\"": "echo \"-- palera1n rootless (iOS with jailbreak)\"",
  "sudo \"$P1N\" --cli -l      # --cli: die Text-Oberfläche (TUI) findet DFU-Geräte nicht zuverlässig": "sudo \"$P1N\" --cli -l      # --cli: the text UI (TUI) does not find DFU devices reliably",
  "echo \"Fertig. Für Nura später wieder: tools/cleanup.sh && ./boot.sh\"": "echo \"Done. For Nura later again: tools/cleanup.sh && ./boot.sh\"",
- "sudo systemctl unmask --runtime usbmuxd.service 2>/dev/null || true   # cleanup.sh sperrt mit --runtime": "sudo systemctl unmask --runtime usbmuxd.service 2>/dev/null || true   # cleanup.sh masks with --runtime"
+ "sudo systemctl unmask --runtime usbmuxd.service 2>/dev/null || true   # cleanup.sh sperrt mit --runtime": "sudo systemctl unmask --runtime usbmuxd.service 2>/dev/null || true   # cleanup.sh masks with --runtime",
+ "# SSH dann über USB:  iproxy 2232 22 &   ssh -p 2232 mobile@127.0.0.1   (Passwort in Sileo festgelegt)": "# SSH via USB:  iproxy 2232 22 &   ssh -p 2232 mobile@127.0.0.1   (password set in Sileo; 2222 is often taken)"
 }

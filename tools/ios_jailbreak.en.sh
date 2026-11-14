@@ -3,7 +3,7 @@
 # Changes neither Nura nor the iOS system permanently (rootless = files only under /var/jb).
 # First: put the iPhone into DFU mode (power + volume down 8 s, release power, volume down 5–10 s).
 # Then on the iPhone: open the palera1n app -> install Sileo -> install "OpenSSH" in Sileo.
-# SSH via USB:  iproxy 2222 22 &   ssh -p 2222 mobile@127.0.0.1   (password set in Sileo)
+# SSH via USB:  iproxy 2232 22 &   ssh -p 2232 mobile@127.0.0.1   (password set in Sileo; 2222 is often taken)
 # As in boot.en.sh: run palera1n as root and re-enumerate the DFU device first (USB controller reset),
 # otherwise palera1n waits forever for "DFU mode devices".
 set -e

@@ -351,3 +351,13 @@ Gleiche Treiberfamilie wie die GPU (AppleA7IOP, AKF V2, RTKit 1827.140.2) → si
   der unter iOS die Coprozessor-Firmware lädt und die Konfigurations-Einträge füllt, läuft nie.
 - iOS-Weg am iPhone 7 nicht möglich (Aktivierungssperre, Apple-ID-Passwort unbekannt). Alternative: iPhone SE
   (A9, iOS 15.8, Zugangsdaten bekannt) als Referenz für das Format der Einträge (tools/ios_jailbreak.sh).
+- iPhone SE (s8000, iOS 15.8, palera1n rootless) als Referenz, ioreg ausgelesen:
+  - `iop-aop-nub`: firmware-name „s8000aop“, **region-base 0x210e00000, region-size 0x9b000** = das AOP-SRAM
+    (ADT reg[1]); `auto-boot` gesetzt. Die Firmware liegt als `/usr/standalone/firmware/FUD/AOP.img4` im
+    Preboot und wird von **iBoot** geladen und gestartet, nicht vom Kernel.
+  - RTKit_iOS-1827.140.2, AppleSPUFirmwareBuilder-373.100.9; Endpunkte 32/33 … wie bei uns.
+  - Kein Kernel-Lese-/Schreibzugriff: libkrw (tfp0-Plugin) meldet ENOTSUP, palera1n bietet kein tfp0.
+    Physischer Speicher (AKF-Fensterregister, SRAM-Inhalt mit den Konfig-Einträgen) ist unter iOS daher
+    nicht lesbar.
+  - Folgerung: Was iBoot in LCSD/SZSD/… und ins AKF-Fenster schreibt, lässt sich nur aus dem iBoot-Code
+    selbst ablesen (statische Analyse von iBoot für t8010).
