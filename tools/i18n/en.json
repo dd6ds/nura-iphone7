@@ -1013,5 +1013,14 @@
  "status(\"vorher:  \")": "status(\"before:  \")",
  "status(\"nachher: \")": "status(\"after:   \")",
  "sys.exit(f\"Eingang nicht bereit ({ein:#x}) – nichts gesendet\")": "sys.exit(f\"inbox not ready ({ein:#x}) – nothing sent\")",
- "print(\"IOP_PWR_STATE 0x220 gesendet\", flush=True)": "print(\"IOP_PWR_STATE 0x220 sent\", flush=True)"
+ "print(\"IOP_PWR_STATE 0x220 gesendet\", flush=True)": "print(\"IOP_PWR_STATE 0x220 sent\", flush=True)",
+ "def lesen(dauer):": "def lesen(dauer):",
+ "aus = r32(0x4020)": "aus = r32(0x4020)",
+ "if aus & 0xc0000:": "if aus & 0xc0000:",
+ "if not aus & (1 << 17):": "if not aus & (1 << 17):",
+ "if was == \"lesen\":": "if was == \"lesen\":",
+ "lesen(2)": "lesen(2)",
+ "ein = r32(0x4008)": "ein = r32(0x4008)",
+ "if ein & 0xc0000 or ein & (1 << 16):": "if ein & 0xc0000 or ein & (1 << 16):",
+ "lesen(3)": "lesen(3)"
 }
