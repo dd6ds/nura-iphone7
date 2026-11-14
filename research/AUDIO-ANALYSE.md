@@ -780,3 +780,21 @@ im 1-MB-Bereich ist nur 0xdf000..0xe0000), dann Endpunkte 32+ (SPU-Protokoll) f�
   (Strings: „transferring 0x22 & CRC“, „0x01 0x0C“, „command to wake up maggie“, „Unable to configure Maggie
   (HomerLoaded/MaggieCalibrated)“, `_writeMultipleRegisters`, `maggie_coefficients`, `maggie_tdm_config`).
   Nächster Schritt: diese Folge aus dem Kext (Text 0x…64e5000, Abzug in research/maggie/maggiekext/) nachbauen.
+
+### MCLK wirklich an: AOP-Stromdomäne 0x15 gefunden, Maggie antwortet, erstes Knacken (2026-11-14, 20:15)
+- AOP-PMGR-Objekt (AOP 0x10905d8, vtbl 0x1077a80, Basis PMGR-mini 0x2_1020_0000): setState(id, s) 0x105ef54
+  schreibt `(reg & ~0x30f) | {0, 4, 0xf}[s]` und wartet auf Bit 7:4. Domänentabelle AOP 0x106a750
+  (je 16 Byte: Kennung, ?, Register-Versatz, ?): 0x18 -> 0x80048 (aop_cpu), 0x0a -> 0x80030, 0x01/02/03 ->
+  0x80018/20/28, **0x15 -> 0x80038**, 0x1d/26/1f/20/21 -> 0x80060/68/70/78/80.
+- Der mca-Dienst schaltet bei enableMClk die Domäne 0x15 in Zustand 2 (0xf). Vom AP aus:
+  **0x2_1028_0038 = 0x80f** (liest danach 0x2ff), dazu 0x2_10c0_2000 = 0x48 -> der 12-MHz-MCLK läuft.
+- Beweis: **Maggie antwortet per SPI** (spi1 CS1): Register 0x7002 = 0x2e8b (iOS „Ping“-Erwartung), 0x7000 =
+  0x0204 (Version), 0x0000 = 0xbeef; nicht lesbare Register liefern 0xabcd. Format (tools/maggie_reg.py):
+  Kopf = Adresse 16 Bit BE + 0x00 (schreiben) / 0x80 (lesen), dann 16-Bit-Werte BE; Lesen = 5 Byte voll-duplex,
+  Daten ab Byte 3. Nur einzelne Register lesen (Mehrfachlesen liefert nur das erste).
+- Grundeinrichtung wie iOS (0x…64e854c): 0x6001 = 0, 0x46 = 0xffff, 0x47 = 1, 0x48 = 1, 0x49 = 3,
+  0x3000 = 0x3001 = 0xff (`maggie_reg.py init`).
+- **Verstärker oben lebt jetzt:** PLL_STATUS 0x10, INT_STATUS 1 = 0x10 (**SPCLK_ERR**: Bittakt der seriellen
+  Schnittstelle passt nicht), INT4 0x0c (VMON/IMON-Überlauf). Hörtest 8 an der Ohrmuschel: **Knacken/Rauschen**.
+- Nächster Schritt: Bittakt-/Rahmenformat für den Verstärker richtig einstellen (SP-Format 0x0d-0x0f,
+  CLK_CTL3, ggf. Maggie als TDM-Vermittler mit `maggie_tdm_config` 00 02 0a 08) – Werte aus AppleCS35L26Amp.
