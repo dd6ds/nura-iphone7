@@ -986,5 +986,16 @@
  "setze(\"dArW\", int(os.environ.get(\"DARW\", \"0xe0000\"), 0))      # 128-KB-Puffer (Firmware-Default-Größe 0x20000)": "setze(\"dArW\", int(os.environ.get(\"DARW\", \"0xe0000\"), 0))      # 128 KB buffer (firmware default size 0x20000)",
  "# TUNE=1: Tunables „AOP Global“ anwenden, wie iBoot 7459.140.15 für t8010 (Register, Maske, Wert)": "# TUNE=1: apply the \"AOP Global\" tunables like iBoot 7459.140.15 for t8010 (register, mask, value)",
  "\"\"\"mem_dump.py <phys-adresse> <länge> <datei> – physischen Speicher per /dev/mem in eine Datei schreiben (root).": "\"\"\"mem_dump.py <phys-address> <length> <file> – write physical memory to a file via /dev/mem (root).",
- "Liest mit ausgerichteten 32-Bit-Zugriffen (geht auch für no-map-Bereiche/Gerätespeicher).\"\"\"": "Reads with aligned 32-bit accesses (also works for no-map ranges/device memory).\"\"\""
+ "Liest mit ausgerichteten 32-Bit-Zugriffen (geht auch für no-map-Bereiche/Gerätespeicher).\"\"\"": "Reads with aligned 32-bit accesses (also works for no-map ranges/device memory).\"\"\"",
+ "# NOCACHE=1: Datencache des AOP nicht einschalten (Startcode setzt SCTLR |= 0x1005 -> nur 0x1001 = MMU +": "# NOCACHE=1: do not enable the AOP data cache (boot code sets SCTLR |= 0x1005 -> only 0x1001 = MMU +",
+ "# Befehlscache). Dann landet jeder Schreibzugriff sofort im RAM und ein RAM-Abzug zeigt den echten Stand": "# instruction cache). Every write then lands in RAM immediately and a RAM dump shows the real state",
+ "# (Stapel, Variablen). Nur zur Fehlersuche – die Firmware wird dadurch langsamer.": "# (stack, variables). Debugging only – it slows the firmware down.",
+ "sys.exit(\"NOCACHE: unerwarteter Befehl bei 0x29c – andere Firmware?\")": "sys.exit(\"NOCACHE: unexpected instruction at 0x29c – different firmware?\")",
+ "log(\"  NOCACHE: Datencache bleibt aus (SCTLR 0x1001)\")": "log(\"  NOCACHE: data cache stays off (SCTLR 0x1001)\")",
+ "# p0CE = IOP-Adresse, an der AOP_ext liegt. Die Firmware bildet damit ihre virtuelle Adresse 0x010d_8000": "# p0CE = IOP address of AOP_ext. The firmware maps its virtual address 0x010d_8000 with it;",
+ "# ab; steht hier 0, zeigt 0x010d_8000 auf den Anfang des Hauptteils und der erste Konstruktor im": "# if it is 0, 0x010d_8000 points to the start of the main part and the first constructor in the",
+ "# ext-Teil (0x010d_c7c1) löst einen Data Abort aus (mit NOCACHE=1 im RAM-Abzug gefunden).": "# ext part (0x010d_c7c1) raises a data abort (found with NOCACHE=1 in the RAM dump).",
+ "# WECKEN=1: nach 0,5 s RTKit-Verwaltungsnachricht IOP_PWR_STATE(0x220) senden – so weckt Linux/Asahi": "# WECKEN=1: after 0.5 s send the RTKit management message IOP_PWR_STATE(0x220) – this is how Linux/Asahi",
+ "# einen Coprozessor, der schon läuft, aber noch kein HELLO geschickt hat.": "# wakes a coprocessor that is already running but has not sent HELLO yet.",
+ "log(f\"  {time.time() - t0:6.3f}s IOP_PWR_STATE 0x220 gesendet, Eingang {akf.r32(0x4008):#x}\")": "log(f\"  {time.time() - t0:6.3f}s IOP_PWR_STATE 0x220 sent, inbox {akf.r32(0x4008):#x}\")"
 }

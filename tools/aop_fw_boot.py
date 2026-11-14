@@ -68,6 +68,15 @@ words = (ctypes.c_uint32 * (RAM_LEN // 4)).from_address(ram.va)
 bild = bytearray(RAM_LEN)
 bild[0:len(haupt)] = haupt
 
+# NOCACHE=1: Datencache des AOP nicht einschalten (Startcode setzt SCTLR |= 0x1005 -> nur 0x1001 = MMU +
+# Befehlscache). Dann landet jeder Schreibzugriff sofort im RAM und ein RAM-Abzug zeigt den echten Stand
+# (Stapel, Variablen). Nur zur Fehlersuche – die Firmware wird dadurch langsamer.
+if os.environ.get("NOCACHE") == "1":
+    if bytes(bild[0x29c:0x2a0]) != bytes.fromhex("051001e3"):     # movw r1, #0x1005 @ IOP 0x0100_029c
+        sys.exit("NOCACHE: unerwarteter Befehl bei 0x29c – andere Firmware?")
+    bild[0x29c] = 0x01                                             # -> movw r1, #0x1001
+    log("  NOCACHE: Datencache bleibt aus (SCTLR 0x1001)")
+
 # TLV=1: die Konfigurationsliste der Firmware (Einträge Kennung/Länge/Wert, ab „GKTS“) so füllen,
 # wie es der iOS-Kernel (RTBuddyFirmware) tut – siehe research/AUDIO-ANALYSE.md.
 if os.environ.get("TLV") == "1":
@@ -95,6 +104,10 @@ if os.environ.get("TLV") == "1":
     setze("_COS", 0x8010)                                         # /chosen chip-id
     setze("RCOS", int(os.environ.get("CHIPREV", "0x11"), 0))      # /arm-io chip-revision
     setze("dArW", int(os.environ.get("DARW", "0xe0000"), 0))      # 128-KB-Puffer (Firmware-Default-Größe 0x20000)
+    # p0CE = IOP-Adresse, an der AOP_ext liegt. Die Firmware bildet damit ihre virtuelle Adresse 0x010d_8000
+    # ab; steht hier 0, zeigt 0x010d_8000 auf den Anfang des Hauptteils und der erste Konstruktor im
+    # ext-Teil (0x010d_c7c1) löst einen Data Abort aus (mit NOCACHE=1 im RAM-Abzug gefunden).
+    setze("p0CE", IOP_BASIS + EXT_OFF)
     if "OTTR" in os.environ:
         setze("OTTR", int(os.environ["OTTR"], 0))
 bild[EXT_OFF:EXT_OFF + len(ext)] = ext
@@ -146,8 +159,15 @@ akf.w32(0x44, akf.r32(0x44) | 0x10)
 auto.w32(0, 1)
 log(f"CPU gestartet: akf+0x44 = {akf.r32(0x44):#x}, Auto-Boot {AUTOBOOT:#x} = {auto.r32(0):#x}")
 t0, n = time.time(), 0
+# WECKEN=1: nach 0,5 s RTKit-Verwaltungsnachricht IOP_PWR_STATE(0x220) senden – so weckt Linux/Asahi
+# einen Coprozessor, der schon läuft, aber noch kein HELLO geschickt hat.
+geweckt = os.environ.get("WECKEN") != "1"
 try:
     while time.time() - t0 < dauer:
+        if not geweckt and time.time() - t0 > 0.5:
+            ctypes.c_uint64.from_address(akf.va + 0x4010).value = 0x0060000000000220
+            geweckt = True
+            log(f"  {time.time() - t0:6.3f}s IOP_PWR_STATE 0x220 gesendet, Eingang {akf.r32(0x4008):#x}")
         out = akf.r32(0x4020)
         if out & 0xc0000:
             log(f"  Ausgang-Fehler {out:#x}"); break

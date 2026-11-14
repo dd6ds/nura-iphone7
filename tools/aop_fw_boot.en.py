@@ -68,6 +68,15 @@ words = (ctypes.c_uint32 * (RAM_LEN // 4)).from_address(ram.va)
 bild = bytearray(RAM_LEN)
 bild[0:len(haupt)] = haupt
 
+# NOCACHE=1: do not enable the AOP data cache (boot code sets SCTLR |= 0x1005 -> only 0x1001 = MMU +
+# instruction cache). Every write then lands in RAM immediately and a RAM dump shows the real state
+# (stack, variables). Debugging only – it slows the firmware down.
+if os.environ.get("NOCACHE") == "1":
+    if bytes(bild[0x29c:0x2a0]) != bytes.fromhex("051001e3"):     # movw r1, #0x1005 @ IOP 0x0100_029c
+        sys.exit("NOCACHE: unexpected instruction at 0x29c – different firmware?")
+    bild[0x29c] = 0x01                                             # -> movw r1, #0x1001
+    log("  NOCACHE: data cache stays off (SCTLR 0x1001)")
+
 # TLV=1: fill the firmware's configuration list (entries tag/length/value, starting at "GKTS")
 # the way the iOS kernel (RTBuddyFirmware) does – see research/AUDIO-ANALYSE.md.
 if os.environ.get("TLV") == "1":
@@ -95,6 +104,10 @@ if os.environ.get("TLV") == "1":
     setze("_COS", 0x8010)                                         # /chosen chip-id
     setze("RCOS", int(os.environ.get("CHIPREV", "0x11"), 0))      # /arm-io chip-revision
     setze("dArW", int(os.environ.get("DARW", "0xe0000"), 0))      # 128 KB buffer (firmware default size 0x20000)
+    # p0CE = IOP address of AOP_ext. The firmware maps its virtual address 0x010d_8000 with it;
+    # if it is 0, 0x010d_8000 points to the start of the main part and the first constructor in the
+    # ext part (0x010d_c7c1) raises a data abort (found with NOCACHE=1 in the RAM dump).
+    setze("p0CE", IOP_BASIS + EXT_OFF)
     if "OTTR" in os.environ:
         setze("OTTR", int(os.environ["OTTR"], 0))
 bild[EXT_OFF:EXT_OFF + len(ext)] = ext
@@ -146,8 +159,15 @@ akf.w32(0x44, akf.r32(0x44) | 0x10)
 auto.w32(0, 1)
 log(f"CPU started: akf+0x44 = {akf.r32(0x44):#x}, auto-boot {AUTOBOOT:#x} = {auto.r32(0):#x}")
 t0, n = time.time(), 0
+# WECKEN=1: after 0.5 s send the RTKit management message IOP_PWR_STATE(0x220) – this is how Linux/Asahi
+# wakes a coprocessor that is already running but has not sent HELLO yet.
+geweckt = os.environ.get("WECKEN") != "1"
 try:
     while time.time() - t0 < dauer:
+        if not geweckt and time.time() - t0 > 0.5:
+            ctypes.c_uint64.from_address(akf.va + 0x4010).value = 0x0060000000000220
+            geweckt = True
+            log(f"  {time.time() - t0:6.3f}s IOP_PWR_STATE 0x220 sent, inbox {akf.r32(0x4008):#x}")
         out = akf.r32(0x4020)
         if out & 0xc0000:
             log(f"  outbox error {out:#x}"); break

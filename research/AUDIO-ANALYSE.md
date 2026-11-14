@@ -386,3 +386,15 @@ iBoot wurde lokal mit dem GID-Schlüssel des eigenen iPhone 7 entschlüsselt (ga
     vermutlich nur der noch nicht zurückgeschriebene Cache-Stand, kein echter Hänger.
   - Folgerung: Aus dem DRAM lässt sich der Fortschritt nicht ablesen. Nächster Schritt wäre, die Firmware an
     ausgewählten Stellen zu patchen (Cache-Clean + Marker), um zu sehen, wie weit sie kommt.
+- **Durchbruch mit `NOCACHE=1`** (Startcode-Patch SCTLR 0x1005 -> 0x1001, Datencache aus, RAM zeigt den echten
+  Stand): Die Firmware lief in einen **Data Abort** im ersten C++-Konstruktor des ext-Teils (0x010d_c7c1, aus der
+  Liste 0x1077930..0x1077970, aufgerufen von Init 0x105924c). Ursache: TLV `p0CE` (= Adresse von AOP_ext) war 0,
+  die Firmware bildete VA 0x010d_8000 deshalb auf PA 0 (Anfang des Hauptteils) ab. `p0DE` gehört zu einem leeren
+  zweiten Bereich (VA 0x010e_0000, Länge 0). Wer p0CE unter iOS setzt, ist offen (Kennung wird wohl dynamisch gebildet).
+- Mit `p0CE = 0xd8000` (jetzt fest in TLV=1): kein Absturz mehr, die Firmware initialisiert viel weiter
+  (RTKit-Tasks Ccdp/Crtk/Ctsc/CrgA/Ctim/Cver/Cstr/Cmbx, i2cm0, Endpunkte …) und geht dann in den Leerlauf (WFI,
+  RAM über 70 s unverändert) – **ohne HELLO**.
+- Das HELLO (0x0010_0000_000c_000c) sendet die Firmware in 0x1062f20, einem Zustandswechsel-Handler, wenn der
+  Zustand auf 0x21 wechselt. Vermutung: Der AOP startet „schlafend“ und braucht vom AP ein Wecksignal
+  (wie bei Asahi: Verwaltungsnachricht IOP_PWR_STATE 0x0060_0000_0000_0220). Erster Versuch: danach lagen im
+  Ausgang nur Datenmüll/Fehlerbits (0x81001/0xa0001); der zweite Versuch (`WECKEN=1`) hat das iPhone eingefroren.
