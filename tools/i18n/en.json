@@ -955,5 +955,6 @@
  "log(f\"CPU gestartet: akf+0x44 = {akf.r32(0x44):#x}, Auto-Boot {AUTOBOOT:#x} = {auto.r32(0):#x}\")": "log(f\"CPU started: akf+0x44 = {akf.r32(0x44):#x}, auto-boot {AUTOBOOT:#x} = {auto.r32(0):#x}\")",
  "log(f\"  {time.time() - t0:6.3f}s Nachricht {n}: {msg:#018x}\")": "log(f\"  {time.time() - t0:6.3f}s message {n}: {msg:#018x}\")",
  "log(f\"nach {time.time() - t0:.1f}s: {n} Nachricht(en), RAM-Stichprobe verändert: {gesehen} Wörter, \"": "log(f\"after {time.time() - t0:.1f}s: {n} message(s), RAM sample changed: {gesehen} words, \"",
- "log(f\"CPU angehalten: akf+0x44 = {akf.r32(0x44):#x}, Auto-Boot = {auto.r32(0):#x}\")": "log(f\"CPU stopped: akf+0x44 = {akf.r32(0x44):#x}, auto-boot = {auto.r32(0):#x}\")"
+ "log(f\"CPU angehalten: akf+0x44 = {akf.r32(0x44):#x}, Auto-Boot = {auto.r32(0):#x}\")": "log(f\"CPU stopped: akf+0x44 = {akf.r32(0x44):#x}, auto-boot = {auto.r32(0):#x}\")",
+ "# Versuch: AOP-SRAM (0x2_10e00000, 0xa0000) bei IOP 0x0116_0000 einblenden (Firmware nutzt 0x011f_8000)": "# Experiment: map the AOP SRAM (0x2_10e00000, 0xa0000) at IOP 0x0116_0000 (firmware uses 0x011f_8000)"
 }

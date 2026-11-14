@@ -90,6 +90,14 @@ if os.environ.get("FENSTER2") == "1":
     akf.w32(0x0c, RAM); akf.w32(0x14, RAM >> 32)
     akf.w32(0x3c, 1)
     log("Window 1 now    0c/14/1c/24/2c/34/3c = " + " ".join(f"{akf.r32(o):#x}" for o in (0x0c, 0x14, 0x1c, 0x24, 0x2c, 0x34, 0x3c)))
+elif os.environ.get("FENSTER2") == "sram":
+    # Experiment: map the AOP SRAM (0x2_10e00000, 0xa0000) at IOP 0x0116_0000 (firmware uses 0x011f_8000)
+    log("Window 1 before 0c/14/1c/24/2c/34/3c = " + " ".join(f"{akf.r32(o):#x}" for o in (0x0c, 0x14, 0x1c, 0x24, 0x2c, 0x34, 0x3c)))
+    akf.w32(0x1c, 0x01160000); akf.w32(0x24, 0)
+    akf.w32(0x2c, 0xa0000); akf.w32(0x34, 0)
+    akf.w32(0x0c, 0x10e00000); akf.w32(0x14, 2)
+    akf.w32(0x3c, 1)
+    log("Window 1 now    0c/14/1c/24/2c/34/3c = " + " ".join(f"{akf.r32(o):#x}" for o in (0x0c, 0x14, 0x1c, 0x24, 0x2c, 0x34, 0x3c)))
 
 # 4) Start the CPU, poll the outbox. The AOP has "auto-boot": AppleA7IOP maps register index 2 for it
 #    (ADT reg[2] = 0x2_10000500) and writes 1 on start, 0 on stop (in addition to +0x44).

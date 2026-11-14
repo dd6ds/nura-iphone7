@@ -342,6 +342,7 @@ Gleiche Treiberfamilie wie die GPU (AppleA7IOP, AKF V2, RTKit 1827.140.2) → si
   → **werden normalerweise von iBoot ausgefüllt** (Boot-Parameter/Tunables).
 - Auf dem Stack stehen außerdem 0x011f_8000 (Länge 0x1000) und 0x011f_8f80 – **außerhalb** unseres Fensters
   (endet 0x0110_0000). Vermutung: AOP-SRAM (0xa0000) wird bei IOP 0x0116_0000–0x0120_0000 erwartet.
-- Nächste Schritte: (1) Fenster 1 auf IOP 0x0116_0000 → AOP-SRAM 0x2_10e00000 (0xa0000) testen;
+- Getestet: Fenster 1 auf IOP 0x0116_0000 → AOP-SRAM (FENSTER2=sram) – identisches Ergebnis, kein HELLO.
+- Nächste Schritte: (1) –;
   (2) Bedeutung/Werte der Konfigurations-Einträge klären (iBoot setzt sie; ggf. aus einem iOS-Speicherabzug
   oder dem iBoot-Code); (3) PC des hängenden AOP über Debug-/PC-Sample-Register ermitteln.
