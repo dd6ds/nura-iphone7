@@ -577,3 +577,24 @@ im 1-MB-Bereich ist nur 0xdf000..0xe0000), dann Endpunkte 32+ (SPU-Protokoll) f�
   kein sauberer Takt-Nachweis.
 - Stand: Ohne Datenblatt des CS42L71 fehlt ein eindeutiges „Takt läuft“-Bit. Sinnvolle Wege: Messung am
   MCLK-Pin, oder den Lautsprecherpfad (CS35L26-Verstärker an spi2, gespeist über mca1/Maggie) angehen.
+
+### Lautsprecher-Verstärker CS35L26 antwortet (2026-11-14, 17:30)
+- Korrektur: Der Verstärker hängt **nicht an spi2**, sondern an **AP-I2C2 (0x2_0a112000), Adresse 0x40**
+  (ADT `audio-speaker-top` unter i2c2, neben ALS 0x29 und Convoy 0x21). Reset = AP-GPIO 140 (0x8c), aktiv low.
+- Ablauf: `pmgr_ps.py 0x801b8 on`, `systemd-run --unit=amp-reset gpioset -c gpiochip0 140=1`, dann
+  `tools/cs35l26.py id|dump|rd|wr|takttest` (nutzt den /dev/mem-I2C aus `tools/i2c_poll.py`).
+- **ID-Register 0x01..0x05 = 35 a2 60 52 a1 -> Geräte-ID 0x35A26, Revision A1.** Die Registerkarte passt zur
+  **CS35L35-Familie** (Linux `sound/soc/codecs/cs35l35.h`): PWRCTL1-3 0x06-0x08 (Ruhe 01 19 25),
+  CLK_CTL1-3 0x0A-0x0C (08 11 00, Taktquelle MCLK), INT_MASK 0x70-0x73 (ff), INT_STATUS 0x74-0x77,
+  PLL_STATUS 0x78 (0x10). iOS-Treiber: `AppleCS35L25Amp`/`AppleCS35L26Amp` (Kext um 0x…64ee000), Fehlerbits
+  u. a. „MCLKError“, „ADSPCLKError“.
+- iOS-Einschalten (0x…64f08dc, zwei Phasen): Phase 1 PWRCTL3 (0x08) = Monitor-Auswahl, PWRCTL2 (0x07) =
+  x|0x3b, PWRCTL1 (0x06) = 1; Phase 2 0x06 = 0, 0x07 = x|0x08, 30 ms, 0x08 &= ~4. MCLK kommt laut ADT über
+  `function-mclk_control = 47:mckE` (AOP), Bit-/Rahmentakt und Daten über mca1 (TDM, Route aud1 -> pin2).
+- `takttest` (stumm einschalten, INT_STATUS lesen): **mit und ohne mckE keine Fehlerbits** (auch mit
+  entmaskierten 0x70/0x71, mit PWRCTL2 PDN_AMP = 0). Die Fehlerbits sind ohne laufenden TDM-Strom offenbar kein
+  Takt-Nachweis.
+- Danach alles zurück: PWRCTL1 = 1, Masken 0xff, Reset wieder aktiv.
+- Nächster Schritt: Testton – mca1 (PMGR 0x80180, NCO1, ClkCon 0x20a002004) als TDM-Master, Route aud1 -> pin2,
+  FIFO per PIO füllen, Verstärker nach iOS-Folge einschalten (SP-Format/Slot aus `speaker-config`, rx_slot 0).
+  Offen: ob die Daten direkt am Verstärker ankommen oder über Maggie (FPGA-Router) laufen.
