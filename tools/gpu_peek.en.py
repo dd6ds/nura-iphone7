@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""gpu_peek.en.py [--on] [block] [count] – explore the A10 GPU (AGX G9P), READ ONLY (root).
+"""gpu_peek.en.py [--on] [block] [count] [start] – explore the A10 GPU (AGX G9P), READ ONLY (root).
 --on first switches on the PMGR domain "gfx" (0x2_0e080328). block: pmgr (state only), sgx,
 shared, kf (gfx-kf IOP). Only the first <count> bytes are read (default 0x40), word by word
 with immediate output – if an access hangs, the last line shows the address. Mailbox/FIFO areas
@@ -12,6 +12,7 @@ BLOECKE = {"sgx": 0x201000000, "shared": 0x201d00000, "kf": 0x201d20000}
 args = [a for a in sys.argv[1:] if not a.startswith("--")]
 block = args[0] if args else "pmgr"
 anzahl = int(args[1], 0) if len(args) > 1 else 0x40
+start = int(args[2], 0) if len(args) > 2 else 0   # e.g. kf 0x48 0x4000 = AKF V2 control
 fd = os.open("/dev/mem", os.O_RDWR | os.O_SYNC)
 
 
@@ -52,8 +53,8 @@ if block == "sgx" and "--force" not in sys.argv:
     # while the sub-domain GFX-SGX is off (the PMGR domain "gfx" alone is not enough).
     sys.exit("sgx: reading freezes the iPhone while GFX-SGX is off – only with --force")
 base = BLOECKE[block]
-r = Reg(base)
-log(f"== {block} {base:#x}")
-for off in range(0, anzahl, 4):
+r = Reg(base + (start & ~0x3fff))
+log(f"== {block} {base:#x} from +{start:#x}")
+for off in range(start, start + anzahl, 4):
     log(f"  reading +{off:#05x} …", end=" ")
-    log(f"{r.rd(off):08x}")
+    log(f"{r.rd(off & 0x3fff):08x}")

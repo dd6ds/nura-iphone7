@@ -28,6 +28,30 @@
   eingeschaltet werden (vermutlich Register im gemeinsamen Block 0x2_01d00000) und wie der IOP
   gestartet wird (Firmware-Ladeadresse, CPU-Start über +0x44).
 
+### Treiber-Analyse 2026-11-14 (Kernelcache iOS 15.8, Kexts nur lokal in research/maggie/, gitignored)
+- `com.apple.AGXG9P` (Klassen AGXAcceleratorG9P_A0/_B0, match `gpu,t8010`): die GPU-Firmware schaltet den
+  GPU-Kern selbst ein/aus („submission while the GPU is powered off“, „GPUIdlePowerOff“). Der AP schaltet
+  nur `gfx` ein und startet den Coprozessor → GFX-SGX ist erst nach Firmware-Start erreichbar.
+  Weitere Registerbereiche im Treiber: „Fender“ (UV-Warnung), „PMGRScratch“.
+- Coprozessor-Start: **nicht** im AGX-Treiber, sondern `com.apple.driver.AppleA7IOP`, Klasse
+  `AppleA7IOPV2GFX` (match `iop-gfx,t8010`) – dieselbe Treiberfamilie wie beim AOP.
+  AKF-V2-Register (aus der Diagnose-Ausgabe `IDLE_STATUS/MAILBOX_SET/…`, relativ zum gfx-kf-Block):
+  | Offset | Register | gelesen (gfx an) |
+  |---|---|---|
+  | +0x4000 | MAILBOX_SET | 0 |
+  | +0x4004 | MAILBOX_CLR | 0 |
+  | +0x4008 | INBOX_CTRL (Bit 0 an, Bit 17 leer) | 0x00020001 |
+  | +0x4020 | OUTBOX_CTRL (Bit 0 an, Bit 17 leer, 0xc0000 = Über-/Unterlauf) | 0x00020001 |
+  | +0x4040 | IDLE_STATUS | 0x59 |
+  Außerdem +0x4018 = 0x48001000, +0x401c = 0x12000080, +0x4038 = 0x08003020, +0x403c = 0x0020c000.
+  CPU-Steuerung vermutlich +0x44 (wie M1-ASC, RUN = Bit 4) = 0.
+- Firmware: `com.apple.AGXFirmwareKextG9PRTBuddy`, Section `__TEXT.__const` (373 545 Byte): Kopf „Release“,
+  danach ARM32-Code (Vektortabelle), `RTKit_iOS-1827.140.2.release` → RTKit wie beim AOP.
+  Treiberfunktionen: requestFirmwareBinary, getBootConfigOffset, getRuntimeBinSize, getFWResumeFlagOffset.
+- Nächste Schritte: (1) `AppleA7IOP::startCPUWithOptions` / `_mapFirmware` (V2) disassemblieren →
+  wie die Firmware in den Speicher kommt (DART-Abbildung) und welches Bit die CPU startet;
+  (2) DART des gfx-kf finden (ADT); (3) erst dann ein Startversuch mit RTKit-Hello.
+
 ## Weg 2: Software-Rendering beschleunigen (erledigt)
 Messung mit `tools/gfx_bench.py` (GTK4, Vollbild, braucht `py3-cairo`; iPhone muss entsperrt sein):
 

@@ -835,5 +835,8 @@
  "# 2026-11-14 zweimal bestätigt: schon 1 Lesezugriff auf 0x2_01000000 friert das iPhone ein,": "# confirmed twice on 2026-11-14: a single read of 0x2_01000000 already freezes the iPhone",
  "# solange die Unter-Domain GFX-SGX aus ist (die PMGR-Domain \"gfx\" allein reicht nicht).": "# while the sub-domain GFX-SGX is off (the PMGR domain \"gfx\" alone is not enough).",
  "sys.exit(\"sgx: Lesen friert das iPhone ein, solange GFX-SGX aus ist – nur mit --force\")": "sys.exit(\"sgx: reading freezes the iPhone while GFX-SGX is off – only with --force\")",
- "log(f\"  lese +{off:#05x} …\", end=\" \")": "log(f\"  reading +{off:#05x} …\", end=\" \")"
+ "log(f\"  lese +{off:#05x} …\", end=\" \")": "log(f\"  reading +{off:#05x} …\", end=\" \")",
+ "\"\"\"gpu_peek.py [--on] [block] [anzahl] [start] – A10-GPU (AGX G9P) erkunden, NUR LESEN (root).": "\"\"\"gpu_peek.py [--on] [block] [count] [start] – explore the A10 GPU (AGX G9P), READ ONLY (root).",
+ "start = int(args[2], 0) if len(args) > 2 else 0   # z. B. kf 0x48 0x4000 = AKF-V2-Steuerung": "start = int(args[2], 0) if len(args) > 2 else 0   # e.g. kf 0x48 0x4000 = AKF V2 control",
+ "log(f\"== {block} {base:#x} ab +{start:#x}\")": "log(f\"== {block} {base:#x} from +{start:#x}\")"
 }
