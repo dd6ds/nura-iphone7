@@ -506,3 +506,16 @@ im 1-MB-Bereich ist nur 0xdf000..0xe0000), dann Endpunkte 32+ (SPU-Protokoll) f�
 - Folgerung: Den MCLK-Teil haben wir mit 0x48 @ 0x2_10c02000 bereits von Hand nachgebildet; der laufende AOP fügt
   dem Codec-Takt nichts hinzu (Test oben). Offen bleibt `_updateArcIOState` (Arc-I/O-Zustand von Maggie) und die
   PLL-Referenz der CS42L71-SPIv2-Brücke.
+
+### `_updateArcIOState` entschlüsselt (2026-11-14)
+- AppleMaggieArcAudio holt in `start` drei Plattformfunktionen aus dem ADT-Knoten maggie-arc:
+  +0x1d8 = `function-aop_mclk_control` (47:mckE), +0x1e0 = `function-aop_maggie_enable` (47:magE),
+  +0x1f8 = `function-spkamp_arc_state` (47:**l25S**). Phandle 47 = SPUApp im AOP.
+- `_updateArcIOState(state)` (0xfffffff0064ea410) ruft nur l25S(state) auf – meldet dem AOP den Zustand des
+  Lautsprecher-Verstärkers (für die Haptik-Arbitrierung im AmpWorker). Schreibt **keine** Maggie-Register und hat
+  mit dem Codec-Takt nichts zu tun.
+- Neue, stärkere Spur: AOP `enableMClk` (Button.cpp 0x100caf4) schreibt nicht nur 0x48 nach 0x2_10c02000, sondern
+  schickt beim ersten Einschalten auch **Dienst-Kommando 0x20 (Daten 1) an den Dienst [this+0x5d4]** (über
+  0x1011824 = SPU_service_command) und ruft 0x1018cd8 auf. Unser Handnachbau (nur 0x48) lässt das aus. Wird
+  enableMClk vom AP über SPUApp „mckE“ angefordert, läuft der komplette Ablauf – dafür müssen wir SPU-Kommandos
+  über die Ringpuffer senden können.
