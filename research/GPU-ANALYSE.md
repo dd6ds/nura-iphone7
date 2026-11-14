@@ -104,6 +104,23 @@ Basis = gfx-kf-Block 0x2_01d20000 („akf“), GFX-Zusatz = gemeinsamer Block 0x
 - Endpunkte 32/33 (GPU-Dienste) bleiben still: sie warten auf den Treiber-Teil von `AGXG9P`
   (Initialisierungsstrukturen, Kommandopuffer). Das ist der nächste, sehr große Schritt.
 
+### Treiber ↔ Firmware-Nachrichten in AGXG9P (`agxk_fwc_arm.cpp`, Klasse AGXArmFirmwareKingfisherV2)
+Gesendet über das RTBuddy-Endpunktobjekt bei this+0xf48 (vtable +0x558 bzw. +0x568); der Endpunkt
+(32 bzw. 33) kommt vom RTBuddy-Objekt, im Nachrichtenwert selbst steht er nicht. Gleiches Schema wie
+Asahi bei der M1-GPU (EP 0x20 Firmware, EP 0x21 Klingel):
+| Nachricht | Inhalt | Fundstelle |
+|---|---|---|
+| `0x81 << 48 \| Adr[43:0]` | **INIT**: GPU-Adresse des Initdata-Objekts (this+0xf50) | 0x…e439ac |
+| `0x83 << 48 \| (Kanal & 7) << 2 \| 2` | Klingel/Kick für einen Kommandokanal | 0x…e3c138 |
+| `0x83 << 48 \| 0x10` | Klingel ohne Kanal (Firmware-Steuerung, bei Asahi FWCTL) | 0x…e3c298 |
+| `0x84 << 48 …` | 3 Stellen (0x…e3c738, …c8d8, …c9a0), noch nicht ausgewertet | |
+| `0x85 << 48 \| Adr[43:0]` | Adresse aus this+0x1c8→+0x4b8 (Wiederanlauf/Recovery) | 0x…e3b898 |
+- Kommandokanäle (TA, 3D, CL) liegen als Ringpuffer im gemeinsamen Speicher („Firmware Channel State Pool“,
+  „(un)cached channel Pool“); die GPU hat eine eigene Seitentabelle (`AGXGartG3ThruG9`), neue Abbildungen
+  meldet der Treiber der Firmware (`AGXArmFirmware::notifyNewMapping(GPUVirtualAddress, IOPhysicalAddress)`).
+- Nächster GPU-Schritt (sehr groß, Wochen): Initdata-Struktur + GART-Seitentabelle aus AGXG9P
+  rekonstruieren, Initdata im reservierten RAM aufbauen und per INIT (0x81) übergeben.
+
 - Ursprünglicher Plan (umgesetzt):
   1. Im DT einen `reserved-memory`-Bereich (z. B. 1 MB, 16-KB-ausgerichtet) für die Firmware anlegen.
   2. gfx einschalten, Firmware per /dev/mem dorthin kopieren, Fenster (IOP-Adresse 0) setzen.
