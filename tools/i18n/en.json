@@ -977,5 +977,11 @@
  "sudo \"$P1N\" --cli -l      # --cli: die Text-Oberfläche (TUI) findet DFU-Geräte nicht zuverlässig": "sudo \"$P1N\" --cli -l      # --cli: the text UI (TUI) does not find DFU devices reliably",
  "echo \"Fertig. Für Nura später wieder: tools/cleanup.sh && ./boot.sh\"": "echo \"Done. For Nura later again: tools/cleanup.sh && ./boot.sh\"",
  "sudo systemctl unmask --runtime usbmuxd.service 2>/dev/null || true   # cleanup.sh sperrt mit --runtime": "sudo systemctl unmask --runtime usbmuxd.service 2>/dev/null || true   # cleanup.sh masks with --runtime",
- "# SSH dann über USB:  iproxy 2232 22 &   ssh -p 2232 mobile@127.0.0.1   (Passwort in Sileo festgelegt)": "# SSH via USB:  iproxy 2232 22 &   ssh -p 2232 mobile@127.0.0.1   (password set in Sileo; 2222 is often taken)"
+ "# SSH dann über USB:  iproxy 2232 22 &   ssh -p 2232 mobile@127.0.0.1   (Passwort in Sileo festgelegt)": "# SSH via USB:  iproxy 2232 22 &   ssh -p 2232 mobile@127.0.0.1   (password set in Sileo; 2222 is often taken)",
+ "# TLV=1: die Konfigurationsliste der Firmware (Einträge Kennung/Länge/Wert, ab „GKTS“) so füllen,": "# TLV=1: fill the firmware's configuration list (entries tag/length/value, starting at \"GKTS\")",
+ "# wie es der iOS-Kernel (RTBuddyFirmware) tut – siehe research/AUDIO-ANALYSE.md.": "# the way the iOS kernel (RTBuddyFirmware) does – see research/AUDIO-ANALYSE.md.",
+ "log(f\"  TLV {kennung}: fehlt\"); return": "log(f\"  TLV {kennung}: missing\"); return",
+ "setze(\"GKTS\", bytes(zufall))                                  # Stack-Schutzwert, ein Byte 0": "setze(\"GKTS\", bytes(zufall))                                  # stack guard, one byte 0",
+ "setze(\"GNRP\", os.urandom(32))                                 # Zufalls-Startwert": "setze(\"GNRP\", os.urandom(32))                                 # random seed",
+ "setze(\"dArW\", int(os.environ.get(\"DARW\", \"0xe0000\"), 0))      # 128-KB-Puffer (Firmware-Default-Größe 0x20000)": "setze(\"dArW\", int(os.environ.get(\"DARW\", \"0xe0000\"), 0))      # 128 KB buffer (firmware default size 0x20000)"
 }

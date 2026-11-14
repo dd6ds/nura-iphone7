@@ -67,6 +67,36 @@ ram = Mem(RAM, RAM_LEN)
 words = (ctypes.c_uint32 * (RAM_LEN // 4)).from_address(ram.va)
 bild = bytearray(RAM_LEN)
 bild[0:len(haupt)] = haupt
+
+# TLV=1: fill the firmware's configuration list (entries tag/length/value, starting at "GKTS")
+# the way the iOS kernel (RTBuddyFirmware) does – see research/AUDIO-ANALYSE.md.
+if os.environ.get("TLV") == "1":
+    tlv = bild.find(b"GKTS")
+    eintraege = {}
+    o = tlv
+    while o > 0 and all(0x20 <= c < 0x7f for c in bild[o:o + 4]):
+        laenge = struct.unpack_from("<I", bild, o + 4)[0]
+        eintraege[bytes(bild[o:o + 4]).decode()] = (o + 8, laenge)
+        o += 8 + laenge
+
+    def setze(kennung, wert):
+        if kennung not in eintraege:
+            log(f"  TLV {kennung}: missing"); return
+        o, laenge = eintraege[kennung]
+        wert = wert if isinstance(wert, bytes) else int(wert).to_bytes(laenge, "little")
+        bild[o:o + laenge] = wert[:laenge]
+        log(f"  TLV {kennung} @ IOP {0x01000000 + o:#x} = {bytes(bild[o:o + laenge]).hex()}")
+
+    zufall = bytearray(os.urandom(4)); zufall[zufall[0] % 4] = 0
+    setze("GKTS", bytes(zufall))                                  # stack guard, one byte 0
+    setze("GNRP", os.urandom(32))                                 # random seed
+    setze("CNON", os.urandom(8))
+    setze("DICE", int(os.environ.get("ECID", "0"), 0))            # /chosen unique-chip-id
+    setze("_COS", 0x8010)                                         # /chosen chip-id
+    setze("RCOS", int(os.environ.get("CHIPREV", "0x11"), 0))      # /arm-io chip-revision
+    setze("dArW", int(os.environ.get("DARW", "0xe0000"), 0))      # 128 KB buffer (firmware default size 0x20000)
+    if "OTTR" in os.environ:
+        setze("OTTR", int(os.environ["OTTR"], 0))
 bild[EXT_OFF:EXT_OFF + len(ext)] = ext
 daten = struct.unpack(f"<{RAM_LEN // 4}I", bytes(bild))
 for i, w in enumerate(daten):

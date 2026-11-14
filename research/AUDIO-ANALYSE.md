@@ -361,3 +361,19 @@ Gleiche Treiberfamilie wie die GPU (AppleA7IOP, AKF V2, RTKit 1827.140.2) → si
     nicht lesbar.
   - Folgerung: Was iBoot in LCSD/SZSD/… und ins AKF-Fenster schreibt, lässt sich nur aus dem iBoot-Code
     selbst ablesen (statische Analyse von iBoot für t8010).
+
+### Wer lädt die AOP-Firmware unter iOS? (statische Analyse iBoot 7459.140.15 + Kernelcache, 2026-11-14)
+iBoot wurde lokal mit dem GID-Schlüssel des eigenen iPhone 7 entschlüsselt (gaster decrypt_kbag) – nichts davon im Repo.
+- **iBoot** startet das AOP nicht. Es (1) trägt `region-base/-size` aus seiner Speicherkarte in
+  `iop-aop-nub` ein, (2) wendet die Tunables „AOP Global“ an (Basis 0x2_1000_0000):
+  `+0x124 |= 1`, `+0x00c` Bit 4 = 0, `+0x200[11:0] = 0`, `+0x218 = 0xc0`, `+0x21c = 0x60`,
+  `+0x220 = 0x493e00` (je 24 Bit), `+0x4014` Bit 0 = 1; (3) baut PMGR-Sequenzen für den AOP.
+- **Der iOS-Kernel** (RTBuddyFirmware.cpp) lädt die Firmware: Puffer = max(Bildgröße, `ZSTR`), Kopie,
+  dann füllt er die TLV-Liste (Kennung, Länge, Wert) der Firmware ab „GKTS“ (bei uns IOP 0x10a3188):
+  `GKTS` Zufall mit einem 0-Byte (Stack-Schutz), `GNRP` 32 B Zufall, `CNON` Zufall, `DICE` = ECID,
+  `_COS` = chip-id (0x8010), `RCOS` = chip-revision, `OTTR` (64 Bit, Zeitbasis o. ä.), `klCN` = nclk,
+  `dArW` = Adresse eines Puffers (Firmware nimmt 0x20000 B Größe an), `ARcM` = 1 << Seitenbits.
+  AppleSPU setzt zusätzlich `laCn`/`Hlca`. LCSD/SZSD/LZSD/SNUT/ZNUT/p0CE/p0DE setzt **niemand** – die
+  Nullen im Bild sind also korrekt (LRSD = 0 heißt: kein Zustand wiederherstellen).
+- Unter Nura blieben bisher u. a. `_COS`/`RCOS` (0xffffffff), `GKTS`, `dArW` (0) ungefüllt.
+  `tools/aop_fw_boot.py` füllt sie mit `TLV=1` (dArW -> IOP 0xe0000, letztes 128 KB im 1-MB-Fenster).
