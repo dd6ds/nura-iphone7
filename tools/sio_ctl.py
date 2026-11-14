@@ -136,13 +136,15 @@ elif cmd == "ton":
     freq = int(os.environ.get("FREQ", "1000"), 0)
     amp = int(os.environ.get("AMPLITUDE", "3000"), 0)
     # Ein 32-Bit-Wort pro Slot (gemessen: 8 Byte je Rahmen bei 2 TX-Slots); Probe in beiden Hälften.
-    perioden = max(1, 0x10000 // (48000 // freq * 8))
-    laenge = perioden * (48000 // freq) * 8 // 64 * 64
+    slots = int(os.environ.get("SLOTS", "2"), 0)          # Wörter je Rahmen = Bits in der MCA-TX-Slotmaske
+    rb = 4 * slots
+    perioden = max(1, 0x10000 // (48000 // freq * rb))
+    laenge = perioden * (48000 // freq) * rb // 64 * 64
     PUF = 0xc0000
-    for i in range(laenge // 8):
+    for i in range(laenge // rb):
         s = int(amp * math.sin(2 * math.pi * freq * i / 48000)) & 0xffff
-        ctypes.c_uint32.from_address(rva + PUF + 8 * i).value = s | s << 16
-        ctypes.c_uint32.from_address(rva + PUF + 8 * i + 4).value = s | s << 16
+        for k in range(slots):
+            ctypes.c_uint32.from_address(rva + PUF + rb * i + 4 * k).value = s | s << 16
     handles = {2: 16, 3: 32}
     for tag, h in handles.items():
         nullen(SEG + 12 * h, 7 * 12)
@@ -166,7 +168,7 @@ elif cmd == "ton":
             print("  <-", zeige(m))
             if op == 0x6a: panic_text(); break
     print(f"{fertig} Puffer à {laenge:#x} Byte fertig in {time.time() - t0:.1f} s "
-          f"(erwartet {dauer * 48000 * 8 / laenge:.0f})")
+          f"(erwartet {dauer * 48000 * rb / laenge:.0f})")
 elif cmd == "hoeren":
     holen(float(sys.argv[2]) if len(sys.argv) > 2 else 5)
 elif cmd == "send":

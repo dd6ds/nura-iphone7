@@ -1254,5 +1254,9 @@
  "zeige(\"vorher\")": "zeige(\"before\")",
  "aus()": "aus()",
  "fertig, t0 = 0, time.time()": "fertig, t0 = 0, time.time()",
- "fertig += 1": "fertig += 1"
+ "fertig += 1": "fertig += 1",
+ "sw(5 + N, 0x0a0a0a)                 # audN <- pin2 (Ziel audN = Index 5+N)": "sw(5 + N, 0x0a0a0a)                 # audN <- pin2 (target audN = index 5+N)",
+ "sw(2 + N, 0x181818)             # früherer Fehler dieses Skripts: pin(2+N) <- pin2 wieder freigeben": "sw(2 + N, 0x181818)             # earlier bug of this script: release pin(2+N) <- pin2 again",
+ "slots = int(os.environ.get(\"SLOTS\", \"2\"), 0)          # Wörter je Rahmen = Bits in der MCA-TX-Slotmaske": "slots = int(os.environ.get(\"SLOTS\", \"2\"), 0)          # words per frame = bits in the MCA TX slot mask",
+ "if \"MASKE\" in os.environ:          # INT_MASK 0x70-0x73 (1 = gesperrt); MASKE=0 meldet Taktfehler": "if \"MASKE\" in os.environ:          # INT_MASK 0x70-0x73 (1 = masked); MASKE=0 reports clock errors"
 }

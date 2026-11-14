@@ -713,3 +713,23 @@ im 1-MB-Bereich ist nur 0xdf000..0xe0000), dann Endpunkte 32+ (SPU-Protokoll) f�
   Maggie (virtual-mca1b, SIO-Kanal 0x52) oder pin2 ist nicht der Verstärker-Port. (2) SP-Format des
   Verstärkers (SP_FMT_CTL1-3 = 0, TDM-Slotlage) aus dem iOS-Treiber AppleCS35L26Amp nachlesen. (3) Fehlerbits
   mit INT_MASK = 0 prüfen (Takt am Verstärker nachweisen). (4) Echte Rahmenrate von mca1 im Master-Betrieb.
+
+### Verstärker: Taktnachweis und iOS-Slotlage (2026-11-14, 18:45)
+- Test 3 (INT_MASK 0x70-0x73 = 0): **keine Fehlerbits in keinem Fall** – weder bei gestopptem mca1 noch mit
+  Taktquelle MCLK ohne MCLK. Die Statusbits des Verstärkers sind damit kein Taktnachweis; vermutlich läuft
+  seine Fehlerlogik ohne irgendeinen Takt gar nicht. PLL_STATUS bleibt 0.
+- Kext AppleCS35L26Amp (Header im Kernelcache bei 0xc6835c, Text 0x…64ec000) nach `research/maggie/cs35l26/`
+  (gitignored) ausgelesen:
+  - 0x…64ee538: RX/TX-Lagen 0x52-0x59 = Slot × Bytebreite (2), danach Tiefen 0x5a-0x5d; Slotnummern aus ADT
+    `tdm-config` (02 03 04 02): **Audio-Eingang im Slot 2** (RXLOC = 4), weitere Kanäle Slot 3/4, TX ab 2.
+  - Optional eine Freischaltfolge (Tabelle 0x…7a54cc8): 0x7f=0x99, 0x00=0x99, 0x6b=0x9c, 0x00=0, 0x7f=0.
+  - Strings: `function-tdm-control`, `function-aopmca-underflow`, `enableAopMCAUnderflow`, `ADSPEnable`,
+    `PDMEnable` – der Verstärker wird unter iOS offenbar (auch) über die AOP-Seite/ADSP gespeist.
+- `mca_v4.py`: TX-Slotmaske per `TXMASKE` (z. B. 0xf); Fehler behoben – der I2S-Schalter-Eintrag für
+  `audN <- pin2` liegt auf Index 5+N (vorher fälschlich 2+N = pin3).
+- `sio_ctl.py ton`: `SLOTS` = Wörter je Rahmen. Gemessen mit 4 Slots: 335 Puffer à 0xff00 in 25 s →
+  ≈ 54,6 kHz Rahmenrate (statt 48 kHz – Rahmenlänge im Master-Betrieb noch nicht verstanden).
+- Hörtest 3 (Ton in allen vier Slots, Verstärker auf Slot 2): **wieder still**.
+- Schluss: Der Weg mca1 → pin2 erreicht den Verstärker so nicht, oder der Verstärker braucht MCLK (AOP `mckE`)
+  bzw. den AOP-/Maggie-Pfad. Nächste Kandidaten: AOP starten und `mckE` senden (Taktquelle MCLK),
+  AOP-I2S-Schalter (`aop-i2s-switch`), Maggie-Pfad (virtual-mca1b, SIO-Kanal 0x52).

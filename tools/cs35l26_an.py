@@ -41,6 +41,8 @@ if len(sys.argv) > 1 and sys.argv[1] == "aus":
     aus(); sys.exit()
 sek = float(sys.argv[1]) if len(sys.argv) > 1 else 5
 zeige("vorher")
+if "MASKE" in os.environ:          # INT_MASK 0x70-0x73 (1 = gesperrt); MASKE=0 meldet Taktfehler
+    for r in range(0x70, 0x74): wr(r, env("MASKE", "0xff"))
 upd(0x0a, 0x03, env("QUELLE", "1"))
 wr(0x0b, env("CTL2", "0x13"))
 for n, r in (("FMT1", 0x0d), ("FMT2", 0x0e), ("FMT3", 0x0f)):

@@ -61,9 +61,11 @@ s = karte(SW)
 sw = lambda i, v: struct.pack_into("<I", s, i * 4, v)
 swr = lambda i: struct.unpack_from("<I", s, i * 4)[0]
 sw(2, N * 0x010101)                 # pin2 <- audN
-sw(2 + N, 0x0a0a0a)                 # audN <- pin2
+sw(5 + N, 0x0a0a0a)                 # audN <- pin2 (target audN = index 5+N)
+if swr(2 + N) == 0x0a0a0a and 2 + N != 5 + N:
+    sw(2 + N, 0x181818)             # earlier bug of this script: release pin(2+N) <- pin2 again
 sw(17, swr(17) | 0x11)              # pin 2 enable
-print(f"Switch: pin2={swr(2):#x} aud{N}={swr(2 + N):#x} enable={swr(17):#x}")
+print(f"Schalter: pin2={swr(2):#x} aud{N}={swr(5 + N):#x} Freigabe={swr(17):#x}")
 
 print(f"MCA{N} version {rd(0):#x}, reg1 (FIFO sizes) {rd(1):#010x}")
 fifo = rd(1) & 0x3ff
@@ -72,7 +74,7 @@ wr(3, 3); warte(3, 3)
 wr(9, 1); warte(9, 1)
 wr(8, 0x1fff); wr(7, 0x1fff)
 for i, v in ((2, 0x1010), (0x19, ((tiefe - 1) << 16) | tiefe), (0x21, 0x30004), (5, 10),
-             (0x1a, 3), (0x1b, 0), (0x22, 0x3e), (0x23, 0), (0x18, 0x132), (0x20, 0x136),
+             (0x1a, int(os.environ.get("TXMASKE", "3"), 0)), (0x1b, 0), (0x22, 0x3e), (0x23, 0), (0x18, 0x132), (0x20, 0x136),
              (8, 0x1fa4), (4, 0x10e000)):
     wr(i, v)
 print(f"TX FIFO depth {tiefe}")
